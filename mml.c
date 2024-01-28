@@ -619,8 +619,18 @@ int go_to_mmlrepo()
     
 }
 
+int ownersEmailFinder()
+{
+
+}
+
 int add(char path[])
 {
+    if(access(path, F_OK)== -1)
+    {
+        perror("Invalid path!\n");
+        return 1;
+    }
     char cwd[1024];
     if (getcwd(cwd, sizeof(cwd)) == NULL)
         return 1;
@@ -631,7 +641,7 @@ int add(char path[])
     
     if(S_ISREG(path_stat.st_mode))
     {
-            isFile ++;
+        isFile ++;
     }
     else if(S_ISDIR(path_stat.st_mode))
     {
@@ -641,8 +651,51 @@ int add(char path[])
     {
         other ++;
     }
-    
-    return go_to_mmlrepo();
+
+    if(isDir)
+    {
+        if(chdir(path) != 0)
+            return 1;
+
+        DIR *dir = opendir(".");
+        if (dir == NULL)
+        {
+            perror("Error opening you directory!\n");
+            return 1;
+        }
+
+        struct dirent* entry;
+        int flag = 1;
+        while((entry = readdir(dir)) != NULL)
+        {
+            if(strcmp(entry->d_name, ".") != 0 &&  strcmp(entry->d_name, "..") != 0)
+                flag = 0;
+        
+        }           
+        closedir(dir);
+
+        if(!flag)
+        {
+
+            dir = opendir(".");
+            while ((entry = readdir(dir)) != NULL) 
+            {  
+                if(strcmp(entry->d_name, ".") != 0 &&  strcmp(entry->d_name, "..") != 0) 
+                {   
+                    char newPath[2000];
+                    sprintf(newPath, "%s/%s", path, entry->d_name);
+                    add(newPath);
+                }
+
+            }
+            closedir(dir);  
+        }  
+        chdir(cwd);
+        
+    }
+
+    if(go_to_mmlrepo())
+        return 1;
 
     DIR *dir = opendir(".");
     if (dir == NULL)
@@ -662,7 +715,7 @@ int add(char path[])
         }
     }
     closedir(dir);
-        
+
     if (!exists) 
     {
         if (mkdir("staging", 0755) != 0) 
@@ -685,7 +738,6 @@ int add(char path[])
         return 1;
     }
 
-    entry;
     int stagingFileExists = 0;
     while ((entry = readdir(dir)) != NULL) 
     {
@@ -701,7 +753,286 @@ int add(char path[])
         FILE* file = fopen("stagingDoc", "w");
         fclose(file);
     }
+    FILE* file = fopen("stagingDoc", "r");
+    char savedPath[2000];
+    while(fgets(savedPath, 2000, file) != NULL)
+    {
+        int len = strlen(savedPath);
+        if(savedPath[len - 1] == '\n' && len > 0)
+        {
+            savedPath[len - 1] = '\0';
+        } 
 
+        if (strcmp(savedPath, path) == 0)
+        {
+            perror("you can't add a file which is already in the staging area unless you commit the changes or reset your file!\n");
+            return 1;
+        }
+    }
+    fclose(file);
+
+    file = fopen("stagingDoc", "a");
+
+    fprintf(file, "%s\n", path);
+    if(isDir)
+    {
+        chdir(cwd);
+        return 0;
+    }
+    
+    char command[4000], currentPlace[3000];
+    getcwd(currentPlace, sizeof(currentPlace));
+    sprintf(command, "cp %s %s", path, currentPlace);
+    system(command);
+
+    chdir(cwd);
+    return 0;
+
+}
+
+int showCurrentStagings()
+{
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return 1;
+
+    if(go_to_mmlrepo())
+        return 1;
+
+    DIR *dir = opendir(".");
+    if (dir == NULL)
+    {
+        perror("Error opening .mml directory!\n");
+        return 1;
+    }
+
+    struct dirent* entry;
+    int exists = 0;
+    while ((entry = readdir(dir)) != NULL) 
+    {
+        if (entry->d_type == DT_DIR && strcmp(entry->d_name, "staging") == 0)
+        {
+            exists = 1;
+            break;
+        }
+    }
+    closedir(dir);
+
+    if(!exists)
+    {
+        perror("you haven't staged any changes yet!\n");
+        return 1;
+    }
+
+    if(chdir("./staging") != 0)
+    {
+        perror("an error accurred while trying to access your staging files !\n");
+        return 1;
+    }
+    
+    dir = opendir(".");
+    int stagingFileExists = 0;
+    while ((entry = readdir(dir)) != NULL) 
+    {
+        if (strcmp(entry->d_name, "stagingDoc") == 0)
+        {
+            stagingFileExists = 1;
+        }
+    }
+    closedir(dir);
+
+    if (stagingFileExists == 0)
+    {
+        perror("you haven't staged any changes yet!\n");
+        return 1;
+    }
+
+    FILE* file = fopen("stagingDoc", "r");
+    char staged[500][1000];
+    int size = 0;
+    while(fgets(staged[size], sizeof(staged[size]), file) != NULL)
+    {
+        int len = strlen(staged[size]);
+        if(staged[size][len - 1] == '\n')
+        {
+            staged[size][len - 1] = '\0';
+        }
+        size++;
+        
+    }
+
+    chdir(cwd);
+
+    dir = opendir(".");
+    while ((entry = readdir(dir)) != NULL) 
+    {
+        if(strcmp(entry->d_name, ".") != 0 &&  strcmp(entry->d_name, "..") != 0) 
+        {   
+            char newPath[2000];
+            sprintf(newPath, "%s/%s", cwd, entry->d_name);
+            int flag = 0;
+            for(int i = 0 ; i < size; i++)
+            {
+                if(strcmp(newPath, staged[i]) == 0)
+                {
+                    flag = 1;
+                    break;
+                }
+            }
+
+            if(flag)
+            {
+                printf("%s : staged\n", entry->d_name);
+            }
+            else
+            {
+                printf("%s : not staged\n", entry->d_name);
+
+            }
+        }
+        
+    }
+    closedir(dir);
+    return 0;
+
+}
+
+int reset(char path[])
+{
+    if(access(path, F_OK)== -1)
+    {
+        perror("Invalid path!\n");
+        return 1;
+    }
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return 1;
+
+    char name[2000];
+    char cpy[3000];
+    strcpy(cpy, path);
+
+    char * tok = strtok(cpy, "/\n");
+    while(tok != NULL)
+    {
+        strcpy(name, tok);
+        tok = strtok(NULL, "/\n");
+    }
+    
+    struct stat path_stat;
+    stat(path, &path_stat);
+    int isDir = 0, isFile = 0, other = 0;
+    
+    if(S_ISREG(path_stat.st_mode))
+    {
+        isFile ++;
+    }
+    else if(S_ISDIR(path_stat.st_mode))
+    {
+        isDir ++;
+    }
+    else
+    {
+        other ++;
+    }
+
+    if(isDir)
+    {
+        if(chdir(path) != 0)
+            return 1;
+
+        DIR *dir = opendir(".");
+        if (dir == NULL)
+        {
+            perror("Error opening you directory!\n");
+            return 1;
+        }
+
+        struct dirent* entry;
+        int flag = 1;
+        while((entry = readdir(dir)) != NULL)
+        {
+            if(strcmp(entry->d_name, ".") != 0 &&  strcmp(entry->d_name, "..") != 0)
+                flag = 0;
+        
+        }         
+        closedir(dir);
+
+        if(!flag)
+        {
+            dir = opendir(".");
+            while ((entry = readdir(dir)) != NULL) 
+            {  
+                if(strcmp(entry->d_name, ".") != 0 &&  strcmp(entry->d_name, "..") != 0) 
+                {   
+                    char newPath[2000];
+                    sprintf(newPath, "%s/%s", path, entry->d_name);
+                    reset(newPath);
+                }
+            }
+
+            closedir(dir);    
+        }
+        chdir(cwd);
+    }
+
+
+        if(go_to_mmlrepo())
+            return 1;
+
+        if(chdir("./staging") != 0)
+        {
+            perror("an error accurred while trying to access your staging files !\n");
+            return 1;
+        }
+
+        remove(name);
+        FILE* stagingfile = fopen("stagingDoc", "r");
+        
+        char line[2000];
+
+        int exists = 1;
+        while(fgets(line, sizeof(line), stagingfile) != NULL)
+        {
+            int len = strlen(line);
+            if(line[len - 1] == '\n' && len > 0)
+                line[len - 1] = '\0';
+            
+            if(strcmp(line, path) == 0)
+            {           
+
+                exists = 0;
+                FILE *stagingfile2 = fopen("stagingDoc", "r");
+                FILE *tmp = fopen("tmp", "w");
+                char line2[2000];
+                while(fgets(line2, sizeof(line2), stagingfile2) != NULL)
+                {
+                    int len2 = strlen(line2);
+                    if(line2[len2 - 1] == '\n' && len2 > 0)
+                    line2[len2 - 1] = '\0';
+                    if(strcmp(line2, path) != 0)
+                    {
+                        fprintf(tmp, "%s\n", line2);
+                    }
+
+                }
+                fclose(stagingfile2);
+                fclose(tmp);
+                remove("stagingDoc");
+                rename("tmp", "stagingDoc");
+            }
+        }
+
+        if(exists)
+        {
+            /*perror("your file or directory has not been staged yet!\n");
+            chdir(cwd);*/
+            return 1;
+        }
+
+        chdir(cwd);
+        return 0;
+    
 }
 
 int main(int argc, char * argv[])
@@ -797,18 +1128,106 @@ int main(int argc, char * argv[])
 
     if(strcmp(argv[1], "add") == 0)
     {
-        char path[2000];
-        if(getcwd(path, sizeof(path)) == NULL)
-            return 1;
+        if(strcmp(argv[2], "-f") == 0)
+        {
+            for(int i = 3; i < argc; i++)
+            {
+                char path[2000];
+                if(getcwd(path, sizeof(path)) == NULL)
+                    return 1;
 
-        int len = strlen(path);
-        path[len] = '/';
-        path[len + 1] = '\0';
+                int len = strlen(path);
+                path[len] = '/';
+                path[len + 1] = '\0';
 
-        strcat(path, argv[2]);
+                char new[2000];
+                if(argv[i][0] == '.' && argv[i][1] == '/')
+                {
+                    int len = strlen(argv[i]);
 
-        add(path);
+                    for(int j = 0 ; j < len - 2; j++)
+                    {
+                        new[j] = argv[i][j + 2];
+                    }
+                }
+                else
+                {
+                    strcpy(new, argv[i]);
+                }
+
+                strcat(path, new);
+                add(path);
+            }
+        }
+        else if(strcmp(argv[2], "-n") == 0)
+        {
+            if(showCurrentStagings())
+                return 1;
+        }
+        else
+        {
+            for(int i = 2; i < argc; i++)
+            {
+                char path[2000];
+                if(getcwd(path, sizeof(path)) == NULL)
+                    return 1;
+
+                int len = strlen(path);
+                path[len] = '/';
+                path[len + 1] = '\0';
+
+                char new[2000];
+                if(argv[i][0] == '.' && argv[i][1] == '/')
+                {
+                    int len = strlen(argv[i]);
+
+                    for(int j = 0 ; j < len - 2; j++)
+                    {
+                        new[j] = argv[i][j + 2];
+                    }
+                }
+                else
+                {
+                    strcpy(new, argv[i]);
+                }
+
+                strcat(path, new);
+                add(path);
+            }
+        }
         
+    }
+
+    if(strcmp(argv[1], "reset") == 0)
+    {
+        for(int i = 2; i < argc; i++)
+        {
+            char path[2000];
+            if(getcwd(path, sizeof(path)) == NULL)
+                return 1;
+
+            int len = strlen(path);
+            path[len] = '/';
+            path[len + 1] = '\0';
+
+            char new[2000];
+            if(argv[i][0] == '.' && argv[i][1] == '/')
+            {
+                int len = strlen(argv[i]);
+
+                for(int j = 0 ; j < len - 2; j++)
+                {
+                    new[j] = argv[i][j + 2];
+                }
+            }
+            else
+            {
+                strcpy(new, argv[i]);
+            }
+
+            strcat(path, new);
+            reset(path);
+        }
     }
 
 }
