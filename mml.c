@@ -136,7 +136,10 @@ int create_configs(char *username, char *email)
         perror("an error accurred!\n");
         return 1;
     }
-    fprintf(file, "%s\n", global);
+    int len = strlen(global);
+    if(len > 0 && global[len - 1] == '\n')
+        global[len - 1] = '\0';
+    fprintf(file, "%s", global);
     fclose(file);
     fclose(file2);
 
@@ -148,7 +151,11 @@ int create_configs(char *username, char *email)
         perror("an error accurred!\n");
         return 1;
     }
-    fprintf(file, "%s\n", global);
+    
+    len = strlen(global);
+    if(len > 0 && global[len - 1] == '\n')
+        global[len - 1] = '\0';
+    fprintf(file, "%s", global);
     fclose(file);
     fclose(file2);
 
@@ -176,7 +183,7 @@ int create_configs(char *username, char *email)
         perror("an error accurred!\n");
         return 1;
     }
-    fprintf(file, "branch: %s\n", "master");
+    fprintf(file, "branch: %s", "master");
     fclose(file);
     
     if (mkdir(".mml/commits", 0755) != 0) 
@@ -191,9 +198,12 @@ int create_configs(char *username, char *email)
         return 1;
     }
 
-    file = fopen(".mml/staging", "w");
-    fclose(file);
-
+    if (mkdir(".mml/staging", 0755) != 0) 
+    {    
+        perror("unable to create the repository!\n");
+        return 1;
+    }
+    
     file = fopen(".mml/tracks", "w");
     fclose(file);
 
@@ -205,7 +215,10 @@ int create_configs(char *username, char *email)
         perror("an error accurred!\n");
         return 1;
     }
-    fprintf(file, "%s\n", global);
+    len = strlen(global);
+    if(len > 0 && global[len - 1] == '\n')
+        global[len - 1] = '\0';
+    fprintf(file, "%s", global);
     fclose(file);
     fclose(file2);
 
@@ -217,7 +230,10 @@ int create_configs(char *username, char *email)
         perror("an error accurred!\n");
         return 1;
     }
-    fprintf(file, "%s\n", global);
+    len = strlen(global);
+    if(len > 0 && global[len - 1] == '\n')
+        global[len - 1] = '\0';
+    fprintf(file, "%s", global);
     fclose(file);
     fclose(file2);
     
@@ -298,7 +314,7 @@ int init(int argc, char * const argv[], char username[], char email[])
         {
             if (chdir("..") != 0) 
             {
-                perror("an error accured while trying to accsess your files!\n");        
+                perror("an error accured while trying to access your files!\n");        
                 return 1;
             }
         }
@@ -532,6 +548,162 @@ int getTheNewestLocalAliases(alias aliases[], int* size)
     return 0;
 }
 
+int go_to_mmlrepo()
+{
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return 1;
+
+    char tmp_cwd[1024];
+    int exists = 0;
+    struct dirent *entry;
+    
+    do 
+    {
+        DIR *dir = opendir(".");
+        if (dir == NULL)
+        {
+            perror("Error opening current directory!\n");
+            return 1;
+        }
+
+        int flag = 0;
+        while ((entry = readdir(dir)) != NULL) 
+        {
+            if (entry->d_type == DT_DIR && strcmp(entry->d_name, ".mml") == 0)
+            {
+                exists = 1;
+                flag = 1;
+                break;
+            }
+        }
+        closedir(dir);
+        
+        if(flag)
+            break;
+
+        if (getcwd(tmp_cwd, sizeof(tmp_cwd)) == NULL)
+        {
+            perror("an error accured!\n");
+            return 1;
+        }
+
+        if (strcmp(tmp_cwd, "/") != 0)
+        {
+            if (chdir("..") != 0) 
+            {
+                perror("an error accured while trying to accsess your files!\n");        
+                return 1;
+            }
+        }
+
+    } while (strcmp(tmp_cwd, "/") != 0);
+
+    if(exists == 0)
+    {
+        if (chdir(cwd) != 0)
+        {
+            perror("an error accured!\n");
+            return 1;
+        }
+        perror("mml repository has not yet been initialized!\n");
+        return 1;
+    }
+
+    if(chdir("./.mml") != 0)
+    {
+        return 1;
+    }
+    
+    return 0;
+    
+}
+
+int add(char path[])
+{
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return 1;
+
+    struct stat path_stat;
+    stat(path, &path_stat);
+    int isDir = 0, isFile = 0, other = 0;
+    
+    if(S_ISREG(path_stat.st_mode))
+    {
+            isFile ++;
+    }
+    else if(S_ISDIR(path_stat.st_mode))
+    {
+        isDir ++;
+    }
+    else
+    {
+        other ++;
+    }
+    
+    return go_to_mmlrepo();
+
+    DIR *dir = opendir(".");
+    if (dir == NULL)
+    {
+        perror("Error opening .mml directory!\n");
+        return 1;
+    }
+
+    struct dirent* entry;
+    int exists = 0;
+    while ((entry = readdir(dir)) != NULL) 
+    {
+        if (entry->d_type == DT_DIR && strcmp(entry->d_name, "staging") == 0)
+        {
+            exists = 1;
+            break;
+        }
+    }
+    closedir(dir);
+        
+    if (!exists) 
+    {
+        if (mkdir("staging", 0755) != 0) 
+        {
+            perror("an error accured while trying to stage your files!\n");
+            return 1;
+        }
+    } 
+
+    if(chdir("./staging") != 0)
+    {
+        perror("an error accurred while trying to access your staging files !\n");
+        return 1;
+    }
+    
+    dir = opendir(".");
+    if (dir == NULL)
+    {
+        perror("Error opening staging directory!\n");
+        return 1;
+    }
+
+    entry;
+    int stagingFileExists = 0;
+    while ((entry = readdir(dir)) != NULL) 
+    {
+        if (strcmp(entry->d_name, "stagingDoc") == 0)
+        {
+            stagingFileExists = 1;
+        }
+    }
+    closedir(dir);
+
+    if (stagingFileExists == 0)
+    {
+        FILE* file = fopen("stagingDoc", "w");
+        fclose(file);
+    }
+
+}
+
 int main(int argc, char * argv[])
 {
     if (argc < 2) 
@@ -621,6 +793,22 @@ int main(int argc, char * argv[])
     {
         if(init(argc, argv,username , email))
             return 1;
+    }
+
+    if(strcmp(argv[1], "add") == 0)
+    {
+        char path[2000];
+        if(getcwd(path, sizeof(path)) == NULL)
+            return 1;
+
+        int len = strlen(path);
+        path[len] = '/';
+        path[len + 1] = '\0';
+
+        strcat(path, argv[2]);
+
+        add(path);
+        
     }
 
 }
