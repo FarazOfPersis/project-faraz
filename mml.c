@@ -8,6 +8,77 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+int go_to_mmlrepo()
+{
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return 1;
+
+    char tmp_cwd[1024];
+    int exists = 0;
+    struct dirent *entry;
+    
+    do 
+    {
+        DIR *dir = opendir(".");
+        if (dir == NULL)
+        {
+            perror("Error opening current directory!\n");
+            return 1;
+        }
+
+        int flag = 0;
+        while ((entry = readdir(dir)) != NULL) 
+        {
+            if (entry->d_type == DT_DIR && strcmp(entry->d_name, ".mml") == 0)
+            {
+                exists = 1;
+                flag = 1;
+                break;
+            }
+        }
+        closedir(dir);
+        
+        if(flag)
+            break;
+
+        if (getcwd(tmp_cwd, sizeof(tmp_cwd)) == NULL)
+        {
+            perror("an error accured!\n");
+            return 1;
+        }
+
+        if (strcmp(tmp_cwd, "/") != 0)
+        {
+            if (chdir("..") != 0) 
+            {
+                perror("an error accured while trying to accsess your files!\n");        
+                return 1;
+            }
+        }
+
+    } while (strcmp(tmp_cwd, "/") != 0);
+
+    if(exists == 0)
+    {
+        if (chdir(cwd) != 0)
+        {
+            perror("an error accured!\n");
+            return 1;
+        }
+        perror("mml repository has not yet been initialized!\n");
+        return 1;
+    }
+
+    if(chdir("./.mml") != 0)
+    {
+        return 1;
+    }
+    
+    return 0;
+    
+}
+
 int globalEmailChanger(char globalEmail[])
 {
     char cwd[1024];
@@ -50,7 +121,7 @@ int globalEmailChanger(char globalEmail[])
     }
 
     FILE * file = fopen("globalEmail.txt", "w");
-    fprintf(file, "Email : %s\n", globalEmail);
+    fprintf(file, "%s", globalEmail);
     fclose(file);
     
     chdir(cwd);
@@ -99,7 +170,7 @@ int globalUsernameChanger(char globalUsername[])
     }
 
     FILE * file = fopen("globalUsername.txt", "w");
-    fprintf(file, "Username : %s\n", globalUsername);
+    fprintf(file, "%s", globalUsername);
     fclose(file);
     
     chdir(cwd);
@@ -242,21 +313,38 @@ int create_configs(char *username, char *email)
 
 int localUsernameChanger(char* username)
 {
-    FILE *file = fopen(".mml/finalUsername", "w");
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return 1;
+
+    if(go_to_mmlrepo())
+        return 1;
+
+    FILE *file = fopen("finalUsername", "w");
     if(file == NULL)
     {
         perror("you must be in the main directory of your repository to change your projects username\n");
         return 1;
-    }
-    fprintf(file, "Username : %s\n", username);
+    }    
+    fprintf(file, "%s", username);
     fclose(file);
+
+    chdir(cwd);
+
 
     return 0;
 }
 
 int localEmailChanger(char* email)
 {
-    FILE *file = fopen(".mml/finalEmail", "w");
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return 1;
+
+    if(go_to_mmlrepo())
+        return 1;
+
+    FILE *file = fopen("finalEmail", "w");
     if(file == NULL)
     {
         perror("you must be in the main directory of your repository to change your projects email\n");
@@ -264,8 +352,10 @@ int localEmailChanger(char* email)
 
     }
         
-    fprintf(file, "Email : %s\n", email);
+    fprintf(file, "%s", email);
     fclose(file);
+
+    chdir(cwd);
 
     return 0;
 }
@@ -507,10 +597,12 @@ int getTheNewestGlobalAliases(alias aliases[] , int* size)
 
 int getTheNewestLocalAliases(alias aliases[], int* size)
 {
-    if(chdir("./.mml") != 0)
-    {
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
         return 1;
-    }
+
+    if(go_to_mmlrepo())
+        return 1;
 
     DIR *dir = opendir(".");
     struct dirent* entry;
@@ -544,83 +636,161 @@ int getTheNewestLocalAliases(alias aliases[], int* size)
     }
 
     fclose(file);
-    chdir("..");
+    chdir(cwd);
     return 0;
 }
 
-int go_to_mmlrepo()
+int ownersEmailFinder(char email[])
 {
     char cwd[1024];
     if (getcwd(cwd, sizeof(cwd)) == NULL)
         return 1;
 
-    char tmp_cwd[1024];
-    int exists = 0;
-    struct dirent *entry;
-    
-    do 
-    {
-        DIR *dir = opendir(".");
-        if (dir == NULL)
-        {
-            perror("Error opening current directory!\n");
-            return 1;
-        }
-
-        int flag = 0;
-        while ((entry = readdir(dir)) != NULL) 
-        {
-            if (entry->d_type == DT_DIR && strcmp(entry->d_name, ".mml") == 0)
-            {
-                exists = 1;
-                flag = 1;
-                break;
-            }
-        }
-        closedir(dir);
-        
-        if(flag)
-            break;
-
-        if (getcwd(tmp_cwd, sizeof(tmp_cwd)) == NULL)
-        {
-            perror("an error accured!\n");
-            return 1;
-        }
-
-        if (strcmp(tmp_cwd, "/") != 0)
-        {
-            if (chdir("..") != 0) 
-            {
-                perror("an error accured while trying to accsess your files!\n");        
-                return 1;
-            }
-        }
-
-    } while (strcmp(tmp_cwd, "/") != 0);
-
-    if(exists == 0)
-    {
-        if (chdir(cwd) != 0)
-        {
-            perror("an error accured!\n");
-            return 1;
-        }
-        perror("mml repository has not yet been initialized!\n");
+    if(go_to_mmlrepo())
         return 1;
+
+    FILE* lastGlobal = fopen("configLastGlobalEmail", "r");
+    FILE* final = fopen("finalEmail", "r");
+    FILE* global = fopen("./.mmlConfigUserEmail/globalEmail.txt", "r");
+    
+    char lastglobal[2000], finall[2000], globall[2000];
+
+    fgets(lastglobal, sizeof(lastglobal), lastGlobal);
+    int len = strlen(lastglobal);
+    if(lastglobal[len - 1] == '\n' && len > 0)
+        lastglobal[len - 1] = '\0';
+
+    fgets(finall, sizeof(finall), final);
+    len = strlen(finall);
+    if(finall[len - 1] == '\n' && len > 0)
+        finall[len - 1] = '\0';
+
+    fgets(globall, sizeof(globall), global);
+    len = strlen(globall);
+    if(globall[len - 1] == '\n' && len > 0)
+        globall[len - 1] = '\0';
+
+    fclose(lastGlobal);
+    fclose(final);
+    fclose(global);
+
+
+    if(strcmp(finall, lastglobal) == 0)
+    {
+        strcpy(email, globall);
+        FILE* lastGlobal = fopen("configLastGlobalEmail", "w");
+        FILE* final = fopen("finalEmail", "w");
+
+        fprintf(lastGlobal, "%s", globall);
+        fprintf(final, "%s", globall);
+
+        fclose(lastGlobal);
+        fclose(final);
     }
 
-    if(chdir("./.mml") != 0)
+    else
     {
-        return 1;
+        if(strcmp(lastglobal, globall) == 0)
+        {
+            strcpy(email, finall);
+        }
+
+        else
+        {
+            strcpy(email, globall);
+            FILE* lastGlobal = fopen("configLastGlobalEmail", "w");
+            FILE* final = fopen("finalEmail", "w");
+
+            fprintf(lastGlobal, "%s", globall);
+            fprintf(final, "%s", globall);
+
+            fclose(lastGlobal);
+            fclose(final);
+        }
+
+
     }
-    
+
+
+    chdir(cwd);
     return 0;
-    
+
 }
 
-int ownersEmailFinder()
+int ownersUsernameFinder(char username[])
 {
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return 1;
+
+    if(go_to_mmlrepo())
+        return 1;
+
+    FILE* lastGlobal = fopen("configLastGlobalUsername", "r");
+    FILE* final = fopen("finalUsername", "r");
+    FILE* global = fopen("./.mmlConfigUserEmail/globalUsername.txt", "r");
+    
+    char lastglobal[2000], finall[2000], globall[2000];
+
+    fgets(lastglobal, sizeof(lastglobal), lastGlobal);
+    int len = strlen(lastglobal);
+    if(lastglobal[len - 1] == '\n' && len > 0)
+        lastglobal[len - 1] = '\0';
+
+    fgets(finall, sizeof(finall), final);
+    len = strlen(finall);
+    if(finall[len - 1] == '\n' && len > 0)
+        finall[len - 1] = '\0';
+
+    fgets(globall, sizeof(globall), global);
+    len = strlen(globall);
+    if(globall[len - 1] == '\n' && len > 0)
+        globall[len - 1] = '\0';
+
+    fclose(lastGlobal);
+    fclose(final);
+    fclose(global);
+
+
+    if(strcmp(finall, lastglobal) == 0)
+    {
+        strcpy(username, globall);
+        FILE* lastGlobal = fopen("configLastGlobalUsername", "w");
+        FILE* final = fopen("finalUsername", "w");
+
+        fprintf(lastGlobal, "%s", globall);
+        fprintf(final, "%s", globall);
+
+        fclose(lastGlobal);
+        fclose(final);
+    }
+
+    else
+    {
+        if(strcmp(lastglobal, globall) == 0)
+        {
+            strcpy(username, finall);
+        }
+
+        else
+        {
+            strcpy(username, globall);
+            FILE* lastGlobal = fopen("configLastGlobalUsername", "w");
+            FILE* final = fopen("finalUsername", "w");
+
+            fprintf(lastGlobal, "%s", globall);
+            fprintf(final, "%s", globall);
+
+            fclose(lastGlobal);
+            fclose(final);
+        }
+
+
+    }
+
+
+    chdir(cwd);
+    return 0;
 
 }
 
@@ -1042,12 +1212,19 @@ int main(int argc, char * argv[])
         perror("please enter a valid command\n");
         return 1;
     }
-    
+
+    char email[1000];
+    char username[1000];
+
     int size = 0;
     alias aliases[500];
-    
-    getTheNewestGlobalAliases(aliases, &size);
-    getTheNewestLocalAliases(aliases, &size);
+    if(strcmp(argv[1], "config") != 0 || strcmp(argv[2], "-global") != 0)
+    {
+        getTheNewestGlobalAliases(aliases, &size);
+        getTheNewestLocalAliases(aliases, &size);
+        ownersEmailFinder(email);
+        ownersUsernameFinder(username);
+    }
 
     for(int i = 0 ; i < size; i++)
     {
@@ -1059,33 +1236,37 @@ int main(int argc, char * argv[])
             return 0;
         }
     }
-    char email[1000];
-    char username[1000];
-
-    if(strcmp(argv[1], "config-global") == 0)
+    
+    if(strcmp(argv[1], "whoami") == 0)
     {
-        if(strcmp(argv[2], "user.name") == 0)
+        printf("owners username : %s\n", username);
+        printf("owners email : %s\n", email);
+    }
+
+    if(strcmp(argv[1], "config") == 0 && strcmp(argv[2], "-global") == 0)
+    {
+        if(strcmp(argv[3], "user.name") == 0)
         {
-            strcpy(username, argv[3]);
+            strcpy(username, argv[4]);
             globalUsernameChanger(username);
         }
-        if(strcmp(argv[2], "user.email") == 0)
+        if(strcmp(argv[3], "user.email") == 0)
         {
-            strcpy(email, argv[3]);
+            strcpy(email, argv[4]);
             globalEmailChanger(email);            
         }
-        if(strncmp(argv[2], "alias", 5) == 0)
+        if(strncmp(argv[3], "alias", 5) == 0)
         {
             char aliasName[1000];
-            sscanf(argv[2], "alias.%s", aliasName);
+            sscanf(argv[4], "alias.%s", aliasName);
             
-            if(strncmp(argv[3], "mml", 3) != 0)
+            if(strncmp(argv[4], "mml", 3) != 0)
             {
                 perror("Invalid command\n");
                 return 1;
             }
 
-            if(globalAlias(argv[3], aliasName))
+            if(globalAlias(argv[4], aliasName))
                 return 1;
         }
 
