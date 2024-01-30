@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <time.h>
 
 int go_to_mmlrepo()
 {
@@ -238,15 +239,6 @@ int create_configs(char *username, char *email)
     }
     fprintf(file, "last_commit_ID: %d\n", 0);
     fclose(file);
-    
-    file = fopen(".mml/configCurrntCommitId", "w");
-    if (file == NULL) 
-    {
-        perror("an error accurred!\n");
-        return 1;
-    }
-    fprintf(file, "current_commit_ID: %d\n", 0);
-    fclose(file);
 
     file = fopen(".mml/configBranch", "w");
     if (file == NULL) 
@@ -254,7 +246,7 @@ int create_configs(char *username, char *email)
         perror("an error accurred!\n");
         return 1;
     }
-    fprintf(file, "branch: %s", "master");
+    fprintf(file, "branch:%s", "master");
     fclose(file);
     
     if (mkdir(".mml/commits", 0755) != 0) 
@@ -505,11 +497,12 @@ int globalAlias(char command[], char aliasName[])
 
 int localAlias(char command[], char aliasName[])
 {
-    if(chdir("./.mml") != 0)
-    {
-        perror("you should be in the main directory of your <<initiallized>> repository\n");
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
         return 1;
-    }
+
+    if(go_to_mmlrepo())
+        return 1;
 
     DIR *dir = opendir(".");
     struct dirent* entry;
@@ -533,7 +526,7 @@ int localAlias(char command[], char aliasName[])
     FILE * file = fopen("AliasLocal", "a");
     fprintf(file, "mml %s==%s\n", aliasName, command);
     fclose(file);
-    chdir("..");
+    chdir(cwd);
     return 0;
 
 }
@@ -544,6 +537,13 @@ typedef struct jaygozin
     char initial[1000];
 
 }alias;
+
+typedef struct mianbor
+{
+    char oldMessage[1000];
+    char newMessage[1000];
+
+}shortcut;
 
 int getTheNewestGlobalAliases(alias aliases[] , int* size)
 {
@@ -620,6 +620,7 @@ int getTheNewestLocalAliases(alias aliases[], int* size)
     if(flag)
     {
         chdir("..");
+        chdir(cwd);
         return 1;
     }
 
@@ -955,6 +956,35 @@ int add(char path[])
     sprintf(command, "cp %s %s", path, currentPlace);
     system(command);
 
+    if(chdir("..") != 0)
+        return 1;
+
+    FILE * tracks = fopen("tracks", "r");
+    char line[2000];
+    int flag = 1;
+    while(fgets(line, sizeof(line), tracks) != NULL)
+    {
+        int len = strlen(line);
+        if(len > 0 && line[len - 1] == '\n')
+        {
+            line[len - 1] = '\0';
+        }
+        
+        if(strcmp(line, path) == 0)
+        {
+            flag = 0;
+            break;
+        }
+    }
+    fclose(tracks);
+
+    if(flag)
+    {
+        FILE* tracks = fopen("tracks", "a");
+        fprintf(tracks, "%s\n", path);
+        fclose(tracks);
+    }
+
     chdir(cwd);
     return 0;
 
@@ -1063,6 +1093,22 @@ int showCurrentStagings()
         
     }
     closedir(dir);
+    return 0;
+
+}
+
+int nameFinder(char name[], char path[])
+{
+    char cpy[3000];
+    strcpy(cpy, path);
+
+    char * tok = strtok(cpy, "/\n");
+    while(tok != NULL)
+    {
+        strcpy(name, tok);
+        tok = strtok(NULL, "/\n");
+    }
+
     return 0;
 
 }
@@ -1205,6 +1251,282 @@ int reset(char path[])
     
 }
 
+int commit(char message[])
+{
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return 1;
+
+    if(go_to_mmlrepo())
+        return 1;
+
+    FILE* lastCommitId = fopen("configLastCommitID", "r");
+    int id;
+    fscanf(lastCommitId,"last_commit_ID : %d" , &id);
+    fclose(lastCommitId);
+
+    lastCommitId = fopen("configLastCommitID", "w");
+    fprintf(lastCommitId, "last_commit_ID : %d", id + 1);
+    fclose(lastCommitId);
+
+
+    id ++;
+    if(chdir("./commits") != 0)
+    {
+        perror("unable to access your commits directory!\n");
+        return 1;
+    }
+
+    char ID[20];
+    sprintf(ID, "%d", id);
+    if(id != 1)
+    {
+        char command[2000], prevID[20];
+        sprintf(prevID, "%d", id - 1);
+        sprintf(command, "cp -r %s %s", prevID, ID);
+        system(command);
+    }
+    else
+    {
+
+        if (mkdir(ID, 0755) != 0) 
+        {    
+            perror("unable to create the commit directory!\n");
+            return 1;
+        }
+    }
+    
+    if(chdir(ID) != 0)
+        return 1;
+
+    FILE* timeAndDate = fopen("timeAndDate", "w");
+    FILE* timeBin = fopen("timeAndDate.bin", "wb");
+
+    time_t currentTime;
+    time(&currentTime);
+
+    fwrite(&currentTime, sizeof(time_t), 1, timeBin);
+    fclose(timeBin);
+
+    struct tm *localTime = localtime(&currentTime);
+    fprintf(timeAndDate, "%s\n", asctime(localTime));
+    fclose(timeAndDate);
+
+    FILE* messagee = fopen("message", "w");
+    fprintf(messagee, "%s", message);
+    fclose(messagee);
+
+    char cwd2[1024];
+    if (getcwd(cwd2, sizeof(cwd)) == NULL)
+        return 1;
+    //printf("%s", cwd2);
+
+    if(chdir("..") != 0)
+        return 1;
+
+    if(chdir("..") != 0)
+        return 1;
+    
+    if(chdir("staging") != 0)
+        return 1;
+    
+    //printf("...");
+
+    DIR* dir = opendir(".");
+    struct dirent* entry;
+    while((entry = readdir(dir)) != NULL)
+    {
+        if(strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name ,".." ) != 0 && strcmp(entry->d_name, "stagingDoc") != 0)
+        {
+            char command[2000];
+            sprintf(command, "mv -f %s ../commits/%s/%s", entry->d_name, ID, entry->d_name);
+            system(command);
+        }
+        
+    }
+    remove("stagingDoc");
+
+    if(chdir("..") != 0)
+        return 1;
+
+    char newcommand[2000];
+    sprintf(newcommand, "cp -f %s ./commits/%s/%s", "tracks", ID, "tracks");
+    system(newcommand);
+
+    chdir("commits");
+    chdir(ID);
+
+    FILE* tracks = fopen("tracks" ,"r");
+    char path[2000];
+    while(fgets(path, sizeof(path), tracks) != NULL)
+    {
+        int len = strlen(path);
+        if(len > 0 && path[len - 1] == '\n')
+        {
+            path[len - 1] = '\0';
+        }
+        char name[2000];
+        nameFinder(name, path);
+            
+        if(access(path, F_OK) == -1)
+        {
+            remove(name) == 0;
+    
+        }
+    }
+    fclose(tracks);
+
+    printf("ID : %d\nMessage : %s\nDate And Time of commit : %s", id, message, asctime(localTime));
+
+    chdir(cwd);
+    return 0;
+
+}
+
+int addShortcut(char oldMessage[], char newMessage[])
+{
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return 1;
+
+    if(go_to_mmlrepo())
+        return 1;
+
+    DIR *dir = opendir(".");
+    struct dirent* entry;
+    int flag = 1;
+    while ((entry = readdir(dir)) != NULL) 
+    {
+        if (strcmp(entry->d_name, "shortcutMessage") == 0)
+        {
+            flag = 0;
+            break;
+        }
+    }
+    closedir(dir);
+
+    if(flag)
+    {
+        FILE * file = fopen("shortcutMessage", "w");
+        fclose(file);
+    }
+
+    FILE * file = fopen("shortcutMessage", "a");
+    fprintf(file, "%s==%s\n", newMessage, oldMessage);
+    fclose(file);
+    chdir(cwd);
+    return 0;
+
+}
+
+int removeShortcut(char newMessage[])
+{
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return 1;
+
+    if(go_to_mmlrepo())
+        return 1;
+
+    DIR *dir = opendir(".");
+    struct dirent* entry;
+    int flag = 1;
+    while ((entry = readdir(dir)) != NULL) 
+    {
+        if (strcmp(entry->d_name, "shortcutMessage") == 0)
+        {
+            flag = 0;
+            break;
+        }
+    }
+    closedir(dir);
+
+    if(flag)
+    {
+        perror("no shortcut message exists!\n");
+        return 1;
+    }
+    
+    FILE* file = fopen("shortcutMessage", "r");
+        
+    char line[2000];
+
+    int exists = 1;
+    while(fgets(line, sizeof(line), file) != NULL)
+    {
+        char linecpy[2000];
+        strcpy(linecpy , line);
+        char *tok = strtok(linecpy, "=\n");
+            
+        if(strcmp(tok, newMessage) == 0)
+        {           
+
+            exists = 0;
+            FILE *file2 = fopen("shortcutMessage", "r");
+            FILE *tmp = fopen("tmp", "w");
+            char line2[2000];
+            while(fgets(line2, sizeof(line2), file2) != NULL)
+            {
+                if(strcmp(line2, line) != 0)
+                {
+                    int len2 = strlen(line2);
+                    if(line2[len2 - 1] == '\n' && len2 > 0)
+                        line2[len2 - 1] = '\0';
+                    fprintf(tmp, "%s\n", line2);
+                }
+                fclose(file2);
+                fclose(tmp);
+                remove("shortcutMessage");
+                rename("tmp", "shortcutMessage");
+
+            }
+
+            break;
+        }
+    }
+    if(exists)
+    {
+        perror("The given shortcut doesn't exist!\n");
+        return 1;
+    }
+
+    chdir(cwd);
+    return 0;
+}
+
+int getTheNewestShortcutMessage(shortcut shortcuts[], int* size)
+{
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return 1;
+
+    if(go_to_mmlrepo())
+        return 1;
+    
+    FILE* file = fopen("shortcutMessage", "r");
+
+    if(file == NULL)
+    {
+        chdir(cwd);
+        return 1;
+    }
+
+    char line[3000];
+    while(fgets(line, sizeof(line), file) != NULL)
+    {
+        char *tok = strtok(line, "=\n");
+        strcpy(shortcuts[*size].newMessage, tok);
+
+        tok = strtok(NULL, "=\n");
+        strcpy(shortcuts[*size].oldMessage, tok);
+
+        *size += 1;
+    }
+    fclose(file);
+    chdir(cwd);
+    return 0;
+}
+
 int main(int argc, char * argv[])
 {
     if (argc < 2) 
@@ -1217,14 +1539,18 @@ int main(int argc, char * argv[])
     char username[1000];
 
     int size = 0;
+    int shortcutsSize = 0;
     alias aliases[500];
+    shortcut shortcuts[500];
     if(strcmp(argv[1], "config") != 0 || strcmp(argv[2], "-global") != 0)
     {
         getTheNewestGlobalAliases(aliases, &size);
         getTheNewestLocalAliases(aliases, &size);
-        ownersEmailFinder(email);
-        ownersUsernameFinder(username);
+        ownersEmailFinder(email);         
+        ownersUsernameFinder(username); 
+        getTheNewestShortcutMessage(shortcuts, &shortcutsSize);         
     }
+    
 
     for(int i = 0 ; i < size; i++)
     {
@@ -1236,7 +1562,8 @@ int main(int argc, char * argv[])
             return 0;
         }
     }
-    
+
+
     if(strcmp(argv[1], "whoami") == 0)
     {
         printf("owners username : %s\n", username);
@@ -1409,6 +1736,62 @@ int main(int argc, char * argv[])
             strcat(path, new);
             reset(path);
         }
+    }
+
+    if(strcmp(argv[1], "commit") == 0)
+    {
+        if(strcmp(argv[2], "-m") == 0)
+        {
+            if(strlen(argv[3]) > 72)
+            {
+                perror("your commit message should not be more than 72 characters!\n");
+                return 1;
+            }
+            if(argv[3] == NULL)
+            {
+                perror("you should add a message!\n");
+                return 1;
+            }
+            if(commit(argv[3]))
+                return 1;
+
+        }
+
+        if(strcmp(argv[2], "-s") == 0)
+        {
+            for(int i = 0 ; i < shortcutsSize; i++)
+            {
+                if(strcmp(shortcuts[i].newMessage, argv[3]) == 0)
+                {
+                    char command[3000];
+                    sprintf(command, "mml commit -m \"%s\"", shortcuts[i].oldMessage);
+                    system(command);
+                    return 0;
+                }
+            }
+
+        }
+    }
+    if(strcmp(argv[1], "set") == 0 && strcmp(argv[2], "-m") == 0 && strcmp(argv[4], "-s") == 0)
+    {
+        if(addShortcut(argv[3], argv[5]))
+            return 1;
+
+    }
+
+    if(strcmp(argv[1] ,"remove") == 0 && strcmp(argv[2] ,"-s") == 0)
+    {
+        if(removeShortcut(argv[3]))
+            return 1;
+    }
+
+    if(strcmp(argv[1], "replace") == 0 && strcmp(argv[2], "-m") == 0 && strcmp(argv[4], "-s") == 0)
+    {
+        if(removeShortcut(argv[5]))
+            return 1;
+
+        if(addShortcut(argv[3], argv[5]))
+            return 1;
     }
 
 }
