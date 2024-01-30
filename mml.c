@@ -8,6 +8,14 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <time.h>
+#include <wchar.h>
+
+#define red "\x1b[31m"
+#define yellow "\x1b[33m"
+#define cyan "\x1b[36m"
+#define green "\x1b[32m"
+#define resetcolor "\x1b[0m"
+
 
 int go_to_mmlrepo()
 {
@@ -45,6 +53,7 @@ int go_to_mmlrepo()
 
         if (getcwd(tmp_cwd, sizeof(tmp_cwd)) == NULL)
         {
+
             perror("an error accured!\n");
             return 1;
         }
@@ -240,13 +249,13 @@ int create_configs(char *username, char *email)
     fprintf(file, "last_commit_ID: %d\n", 0);
     fclose(file);
 
-    file = fopen(".mml/configBranch", "w");
+    file = fopen(".mml/branch", "w");
     if (file == NULL) 
     {
         perror("an error accurred!\n");
         return 1;
     }
-    fprintf(file, "branch:%s", "master");
+    fprintf(file, "%s", "master");
     fclose(file);
     
     if (mkdir(".mml/commits", 0755) != 0) 
@@ -545,6 +554,15 @@ typedef struct mianbor
 
 }shortcut;
 
+typedef struct vaziat
+{
+    char path[2000];
+    char name[200];
+    char staged;
+    char state;
+
+}fileState;
+
 int getTheNewestGlobalAliases(alias aliases[] , int* size)
 {
     char cwd[1024];
@@ -797,15 +815,17 @@ int ownersUsernameFinder(char username[])
 
 int add(char path[])
 {
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return 1;
+
     if(access(path, F_OK)== -1)
     {
         perror("Invalid path!\n");
         return 1;
     }
-    char cwd[1024];
-    if (getcwd(cwd, sizeof(cwd)) == NULL)
-        return 1;
 
+    
     struct stat path_stat;
     stat(path, &path_stat);
     int isDir = 0, isFile = 0, other = 0;
@@ -1082,11 +1102,11 @@ int showCurrentStagings()
 
             if(flag)
             {
-                printf("%s : staged\n", entry->d_name);
+                printf(cyan "%s : staged\n" resetcolor, entry->d_name);
             }
             else
             {
-                printf("%s : not staged\n", entry->d_name);
+                printf(red "%s : not staged\n" resetcolor, entry->d_name);
 
             }
         }
@@ -1349,13 +1369,6 @@ int commit(char message[])
     if(chdir("..") != 0)
         return 1;
 
-    char newcommand[2000];
-    sprintf(newcommand, "cp -f %s ./commits/%s/%s", "tracks", ID, "tracks");
-    system(newcommand);
-
-    chdir("commits");
-    chdir(ID);
-
     FILE* tracks = fopen("tracks" ,"r");
     char path[2000];
     while(fgets(path, sizeof(path), tracks) != NULL)
@@ -1370,11 +1383,43 @@ int commit(char message[])
             
         if(access(path, F_OK) == -1)
         {
-            remove(name) == 0;
+            remove(name);
+            FILE* tracks2 = fopen("tracks", "r");
+            FILE* tracksfinal = fopen("tmp", "w");
+
+            char line2[2000];
+            while(fgets(line2, sizeof(line2), tracks2) != NULL)
+            {
+                int len = strlen(line2);
+                if(len > 0 && line2[len - 1] == '\n')
+                {
+                    line2[len - 1] = '\0';
+                }
+
+                if(strcmp(line2, path) != 0)
+                {
+                    int len2 = strlen(line2);
+                    if(line2[len2 - 1] == '\n' && len2 > 0)
+                        line2[len2 - 1] = '\0';
+                    fprintf(tracksfinal, "%s\n", line2);
+                }
+                fclose(tracks2);
+                fclose(tracksfinal);
+                remove("tracks");
+                rename("tmp", "tracks");
+
+            }
     
         }
     }
     fclose(tracks);
+
+    char newcommand[2000];
+    sprintf(newcommand, "cp -f %s ./commits/%s/%s", "tracks", ID, "tracks");
+    system(newcommand);
+
+    chdir("commits");
+    chdir(ID);
 
     printf("ID : %d\nMessage : %s\nDate And Time of commit : %s", id, message, asctime(localTime));
 
@@ -1527,6 +1572,322 @@ int getTheNewestShortcutMessage(shortcut shortcuts[], int* size)
     return 0;
 }
 
+int status()
+{
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return 1;
+
+    if(go_to_mmlrepo())
+        return 1;
+
+    fileState files[500];
+
+    FILE *file = fopen("configLastCommitID", "r");
+    int id;
+    fscanf(file, "last_commit_ID : %d", &id);
+    fclose(file);
+
+    char ID[20];
+    sprintf(ID, "%d", id);
+
+    
+    file = fopen("tracks", "r");
+
+    char line[2000];
+    int size = 0;
+    while(fgets(line, sizeof(line), file) != NULL)
+    {
+        int len = strlen(line);
+        if(line[len - 1] == '\n' && len > 0)
+        {
+            line[len - 1] = '\0';
+        }
+
+        strcpy(files[size].path, line);
+        nameFinder(files[size].name, line);
+        if(access(line, F_OK)== -1)
+        {
+            files[size].state = 'D';
+        }
+        else if(id != 0)
+        {
+            
+            char filename[1000];
+            sprintf(filename,"commits/%s/tracks", ID);
+            FILE* lasttrack = fopen(filename, "r");
+            char khat[1000];
+            int exists = 1;
+            while(fgets(khat, sizeof(khat), lasttrack) != NULL)
+            {
+                int len = strlen(khat);
+                if(khat[len - 1] == '\n' && len > 0)
+                {
+                    khat[len - 1] = '\0';
+                }
+
+                if(strcmp(khat, line) == 0)
+                {
+                    exists = 0;
+                    break;
+                }
+            }
+            fclose(lasttrack);
+            if(exists)
+            {
+                files[size].state = 'A';
+            }
+            else
+                files[size].state = '.';
+        }
+        size ++;
+
+    }
+        
+    fclose(file);
+
+    if(id == 0)
+    {
+        for(int i = 0 ; i < size; i++)
+        {
+            files[i].state = 'A';
+            files[i].staged = '+';
+        }
+        for(int i = 0 ; i < size ; i++)
+        {
+            if(files[i].state == 'A')
+            {                  
+                printf("%s ", files[i].name);
+                printf("%c", files[i].staged);
+                printf(cyan "A\n" resetcolor);
+
+            }
+        }
+        for(int i = 0 ; i < size ; i++)
+        {
+            if(files[i].state == 'D')
+            { 
+                printf("%s ", files[i].name);      
+                printf("%c", files[i].staged);
+                printf(red "D\n" resetcolor);
+            }
+        }
+            chdir(cwd);
+        
+    }
+    
+
+    if(chdir("commits") != 0)
+        return 1;
+
+    if(chdir(ID) != 0)
+        return 1;
+
+    file = fopen("timeAndDate.bin", "rb");
+
+    time_t saved;
+    fread(&saved, sizeof(time_t), 1, file);
+
+    fclose(file);
+    for(int i = 0 ; i < size; i++)
+    {
+        if(files[i].state == 'D')
+            continue;
+        
+        struct stat fileinfo;
+        if(stat(files[i].path, &fileinfo) == -1)
+        {
+            perror("an error accured!\n");
+            return 1;
+        }
+
+        if(fileinfo.st_mtime > saved && files[i].state != 'A')
+        {
+            files[i].state = 'M';
+        }
+
+    }
+
+    if(chdir("..") != 0)
+        return 1;
+
+    if(chdir("..") != 0)
+        return 1;
+
+    if(chdir("staging") != 0)
+        return 1;
+
+    FILE* staging = fopen("stagingDoc", "r");
+    if(staging == NULL)
+    {
+        for(int i = 0 ; i < size; i++)
+            files[i].staged = '-';
+        
+    }
+
+    else
+    {
+        char linee[2000];
+        while(fgets(linee, sizeof(linee), staging) != NULL)
+        {
+            int len = strlen(linee);
+            if(linee[len - 1] == '\n' && len > 0)
+            {
+                linee[len - 1] = '\0';
+            }
+
+            for(int i = 0; i < size; i++)
+            {
+                if(strcmp(linee, files[i].path) == 0)
+                {
+                    files[i].staged = '+';
+                }
+            }
+        }
+    
+
+        fclose(staging);
+    }
+
+    for(int i = 0 ; i < size ; i ++)
+        if(files[i].staged != '+')
+            files[i].staged = '-';
+
+    for(int i = 0 ; i < size ; i++)
+    {
+        if(files[i].state == 'M')
+        {                  
+            printf("%s ", files[i].name);
+            printf("%c", files[i].staged);
+            printf(yellow "M\n" resetcolor);
+        }
+    }
+    for(int i = 0 ; i < size ; i++)
+    {
+        if(files[i].state == '.')
+        {      
+            printf("%s ", files[i].name);
+            printf("%c", files[i].staged);
+            printf(green "#\n" resetcolor);
+
+        }
+    }
+    for(int i = 0 ; i < size ; i++)
+    {
+        if(files[i].state == 'A')
+        {                  
+            printf("%s ", files[i].name);
+            printf("%c", files[i].staged);
+            printf(cyan "A\n" resetcolor);
+
+        }
+    }
+    for(int i = 0 ; i < size ; i++)
+    {
+        if(files[i].state == 'D')
+        { 
+            printf("%s ", files[i].name);      
+            printf("%c", files[i].staged);
+            printf(red "D\n" resetcolor);
+        }
+    }
+
+    chdir(cwd);
+    return 0;
+}
+
+int changeChecker()
+{
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return 1;
+
+    if(go_to_mmlrepo())
+        return 1;
+
+    if(chdir("staging") != 0)
+    {
+        chdir(cwd);
+        return 1;
+    }
+
+    FILE* file = fopen("stagingDoc", "r");
+    if(file == NULL)
+    {
+        chdir(cwd);
+        return 1;
+    }
+
+    struct stat docinfo;
+    if(stat("stagingDoc", &docinfo) == -1)
+    {
+        perror("an error accured!\n");
+        chdir(cwd);
+        return 1;
+    }
+    
+    char line[2000];
+    while(fgets(line, sizeof(line), file) != NULL)
+    {
+        int len = strlen(line);
+        if(line[len - 1] == '\n' && len > 0)
+        {
+            line[len - 1] = '\0';
+        }
+
+        int deleted = 0;
+        if(access(line, F_OK)== -1)
+        {
+            deleted = 1;
+        }
+        struct stat fileinfo;
+
+        if(deleted == 0)
+        {
+            if(stat(line, &fileinfo) == -1)
+            {
+            chdir(cwd);
+            return 1;
+            }
+        }
+
+        if(fileinfo.st_mtime > docinfo.st_mtime || deleted)
+        {
+            FILE *file2 = fopen("stagingDoc", "r");
+            FILE *tmp = fopen("tmp", "w");
+            char line2[2000];
+            int num = 0;
+            while(fgets(line2, sizeof(line2), file2) != NULL)
+            {
+                int len2 = strlen(line2);
+                    if(line2[len2 - 1] == '\n' && len2 > 0)
+                        line2[len2 - 1] = '\0';
+                
+                num ++;
+                if(strcmp(line2, line) != 0)
+                {               
+                    fprintf(tmp, "%s\n", line2); 
+                }
+            }
+            num --;
+
+            fclose(file2);
+            fclose(tmp);
+            remove("stagingDoc");
+            if(num > 0)
+                rename("tmp", "stagingDoc");
+            
+            char name[1000];
+            nameFinder(name, line);
+            remove(name);
+        }
+
+    }
+    fclose(file);
+    chdir(cwd);
+    return 0;
+}
+
 int main(int argc, char * argv[])
 {
     if (argc < 2) 
@@ -1545,10 +1906,14 @@ int main(int argc, char * argv[])
     if(strcmp(argv[1], "config") != 0 || strcmp(argv[2], "-global") != 0)
     {
         getTheNewestGlobalAliases(aliases, &size);
-        getTheNewestLocalAliases(aliases, &size);
-        ownersEmailFinder(email);         
-        ownersUsernameFinder(username); 
-        getTheNewestShortcutMessage(shortcuts, &shortcutsSize);         
+        if(strcmp(argv[1] , "init") != 0)
+        {
+            getTheNewestLocalAliases(aliases, &size);
+            ownersEmailFinder(email);         
+            ownersUsernameFinder(username); 
+            getTheNewestShortcutMessage(shortcuts, &shortcutsSize); 
+            changeChecker();        
+        }
     }
     
 
@@ -1640,30 +2005,8 @@ int main(int argc, char * argv[])
         {
             for(int i = 3; i < argc; i++)
             {
-                char path[2000];
-                if(getcwd(path, sizeof(path)) == NULL)
-                    return 1;
-
-                int len = strlen(path);
-                path[len] = '/';
-                path[len + 1] = '\0';
-
-                char new[2000];
-                if(argv[i][0] == '.' && argv[i][1] == '/')
-                {
-                    int len = strlen(argv[i]);
-
-                    for(int j = 0 ; j < len - 2; j++)
-                    {
-                        new[j] = argv[i][j + 2];
-                    }
-                }
-                else
-                {
-                    strcpy(new, argv[i]);
-                }
-
-                strcat(path, new);
+                
+                char* path = realpath(argv[i], NULL);
                 add(path);
             }
         }
@@ -1676,30 +2019,7 @@ int main(int argc, char * argv[])
         {
             for(int i = 2; i < argc; i++)
             {
-                char path[2000];
-                if(getcwd(path, sizeof(path)) == NULL)
-                    return 1;
-
-                int len = strlen(path);
-                path[len] = '/';
-                path[len + 1] = '\0';
-
-                char new[2000];
-                if(argv[i][0] == '.' && argv[i][1] == '/')
-                {
-                    int len = strlen(argv[i]);
-
-                    for(int j = 0 ; j < len - 2; j++)
-                    {
-                        new[j] = argv[i][j + 2];
-                    }
-                }
-                else
-                {
-                    strcpy(new, argv[i]);
-                }
-
-                strcat(path, new);
+                char* path = realpath(argv[i], NULL);
                 add(path);
             }
         }
@@ -1710,30 +2030,7 @@ int main(int argc, char * argv[])
     {
         for(int i = 2; i < argc; i++)
         {
-            char path[2000];
-            if(getcwd(path, sizeof(path)) == NULL)
-                return 1;
-
-            int len = strlen(path);
-            path[len] = '/';
-            path[len + 1] = '\0';
-
-            char new[2000];
-            if(argv[i][0] == '.' && argv[i][1] == '/')
-            {
-                int len = strlen(argv[i]);
-
-                for(int j = 0 ; j < len - 2; j++)
-                {
-                    new[j] = argv[i][j + 2];
-                }
-            }
-            else
-            {
-                strcpy(new, argv[i]);
-            }
-
-            strcat(path, new);
+            char* path = realpath(argv[i], NULL);
             reset(path);
         }
     }
@@ -1791,6 +2088,12 @@ int main(int argc, char * argv[])
             return 1;
 
         if(addShortcut(argv[3], argv[5]))
+            return 1;
+    }
+
+    if(strcmp(argv[1], "status") == 0)
+    {
+        if(status())
             return 1;
     }
 
