@@ -249,7 +249,7 @@ int create_configs(char *username, char *email)
     fprintf(file, "last_commit_ID: %d\n", 0);
     fclose(file);
 
-    file = fopen(".mml/branch", "w");
+    file = fopen(".mml/currentBranch", "w");
     if (file == NULL) 
     {
         perror("an error accurred!\n");
@@ -257,7 +257,25 @@ int create_configs(char *username, char *email)
     }
     fprintf(file, "%s", "master");
     fclose(file);
-    
+
+    file = fopen(".mml/branchList", "w");
+    if (file == NULL) 
+    {
+        perror("an error accurred!\n");
+        return 1;
+    }
+    fprintf(file, "%s\n", "master");
+    fclose(file);
+
+    file = fopen(".mml/head", "w");
+    if (file == NULL) 
+    {
+        perror("an error accurred!\n");
+        return 1;
+    }
+    fprintf(file, "%s", "HEAD");
+    fclose(file);
+
     if (mkdir(".mml/commits", 0755) != 0) 
     {    
         perror("unable to create the repository!\n");
@@ -275,6 +293,15 @@ int create_configs(char *username, char *email)
         perror("unable to create the repository!\n");
         return 1;
     }
+    if (mkdir(".mml/branches", 0755) != 0) 
+    {    
+        perror("unable to create the repository!\n");
+        return 1;
+    }
+
+    file = fopen(".mml/branches/master", "w");
+    fprintf(file, "%d", 0);
+    fclose(file);
     
     file = fopen(".mml/tracks", "w");
     fclose(file);
@@ -973,37 +1000,11 @@ int add(char path[])
     
     char command[4000], currentPlace[3000];
     getcwd(currentPlace, sizeof(currentPlace));
-    sprintf(command, "cp %s %s", path, currentPlace);
+    sprintf(command, "cp -f %s %s", path, currentPlace);
     system(command);
 
     if(chdir("..") != 0)
         return 1;
-
-    FILE * tracks = fopen("tracks", "r");
-    char line[2000];
-    int flag = 1;
-    while(fgets(line, sizeof(line), tracks) != NULL)
-    {
-        int len = strlen(line);
-        if(len > 0 && line[len - 1] == '\n')
-        {
-            line[len - 1] = '\0';
-        }
-        
-        if(strcmp(line, path) == 0)
-        {
-            flag = 0;
-            break;
-        }
-    }
-    fclose(tracks);
-
-    if(flag)
-    {
-        FILE* tracks = fopen("tracks", "a");
-        fprintf(tracks, "%s\n", path);
-        fclose(tracks);
-    }
 
     chdir(cwd);
     return 0;
@@ -1224,19 +1225,28 @@ int reset(char path[])
 
         remove(name);
         FILE* stagingfile = fopen("stagingDoc", "r");
+        if(stagingfile == NULL)
+        {
+            perror("you haven't staged any changes yet!\n");
+            chdir(cwd);
+            return 1;
+        }
         
         char line[2000];
 
         int exists = 1;
+        int counter = 0;
         while(fgets(line, sizeof(line), stagingfile) != NULL)
         {
             int len = strlen(line);
             if(line[len - 1] == '\n' && len > 0)
                 line[len - 1] = '\0';
+
+            counter ++;
             
             if(strcmp(line, path) == 0)
             {           
-
+                counter --;
                 exists = 0;
                 FILE *stagingfile2 = fopen("stagingDoc", "r");
                 FILE *tmp = fopen("tmp", "w");
@@ -1265,13 +1275,18 @@ int reset(char path[])
             chdir(cwd);*/
             return 1;
         }
+        if(counter < 1)
+        {
+            remove("stagingDoc");
+        }
+
 
         chdir(cwd);
         return 0;
     
 }
 
-int commit(char message[])
+int commit(char message[], char email[], char username[])
 {
     char cwd[1024];
     if (getcwd(cwd, sizeof(cwd)) == NULL)
@@ -1279,6 +1294,12 @@ int commit(char message[])
 
     if(go_to_mmlrepo())
         return 1;
+
+    if(access("staging/stagingDoc", F_OK)== -1)
+    {
+        perror("You haven't staged any changes!\n");
+        return 1;
+    }
 
     FILE* lastCommitId = fopen("configLastCommitID", "r");
     int id;
@@ -1289,8 +1310,17 @@ int commit(char message[])
     fprintf(lastCommitId, "last_commit_ID : %d", id + 1);
     fclose(lastCommitId);
 
+    FILE* currentBranch = fopen("currentBranch", "r");
+    char branch[1000];
+    fgets(branch, sizeof(branch), currentBranch);
+    fclose(currentBranch);
+    int len = strlen(branch);
+    if (branch[len - 1] == '\n' && len > 0)
+    {
+        branch[len - 1] = '\0';
+    }
 
-    id ++;
+    id += 1;
     if(chdir("./commits") != 0)
     {
         perror("unable to access your commits directory!\n");
@@ -1299,10 +1329,16 @@ int commit(char message[])
 
     char ID[20];
     sprintf(ID, "%d", id);
+    char branchPath[2000];
+    sprintf(branchPath, "../branches/%s", branch);
     if(id != 1)
-    {
+    {    
+        FILE* file = fopen(branchPath, "r");
         char command[2000], prevID[20];
-        sprintf(prevID, "%d", id - 1);
+        int prevId;
+        fscanf(file, "%d", &prevId);
+        fclose(file);
+        sprintf(prevID, "%d", prevId);
         sprintf(command, "cp -r %s %s", prevID, ID);
         system(command);
     }
@@ -1316,8 +1352,19 @@ int commit(char message[])
         }
     }
     
+    FILE* new = fopen(branchPath, "w");
+    fprintf(new, "%d", id);
+    fclose(new);
     if(chdir(ID) != 0)
         return 1;
+    
+    FILE* owner = fopen("owner", "w");
+    fprintf(owner, "%s\n%s", username, email);
+    fclose(owner);
+
+    FILE* branchName= fopen("branchName", "w");
+    fprintf(branchName, "%s", branch);
+    fclose(branchName);
 
     FILE* timeAndDate = fopen("timeAndDate", "w");
     FILE* timeBin = fopen("timeAndDate.bin", "wb");
@@ -1336,28 +1383,67 @@ int commit(char message[])
     fprintf(messagee, "%s", message);
     fclose(messagee);
 
-    char cwd2[1024];
-    if (getcwd(cwd2, sizeof(cwd)) == NULL)
-        return 1;
-    //printf("%s", cwd2);
-
     if(chdir("..") != 0)
         return 1;
 
     if(chdir("..") != 0)
         return 1;
     
+    
+    FILE* stagingDoc =fopen("staging/stagingDoc", "r");
+    if(stagingDoc == NULL)
+    {
+        perror("you haven't staged any changes yet!\n");
+        return 1;
+    }
+    char path[2000];
+    int flag = 1;
+    while(fgets(path, sizeof(path), stagingDoc) != NULL)
+    {    
+        int len = strlen(path);
+        if(path[len - 1] == '\n' && len > 0)
+            path[len - 1] = '\0';
+
+        FILE * tracks2 = fopen("tracks", "r");
+        char line[2000];
+        int flag = 1;
+        while(fgets(line, sizeof(line), tracks2) != NULL)
+        {
+            len = strlen(line);
+            if(len > 0 && line[len - 1] == '\n')
+            {
+                line[len - 1] = '\0';
+            }
+
+            if(strcmp(line, path) == 0)
+            {
+                flag = 0;
+                break;
+            }
+        }
+        fclose(tracks2);
+    
+        if(flag)
+        {
+            FILE* tracks = fopen("tracks", "a");
+            fprintf(tracks, "%s\n", path);
+            fclose(tracks);
+        }
+    } 
+    fclose(stagingDoc);
+
     if(chdir("staging") != 0)
         return 1;
     
-    //printf("...");
 
+    int num = 0;
     DIR* dir = opendir(".");
     struct dirent* entry;
     while((entry = readdir(dir)) != NULL)
     {
         if(strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name ,".." ) != 0 && strcmp(entry->d_name, "stagingDoc") != 0)
         {
+            num ++;
             char command[2000];
             sprintf(command, "mv -f %s ../commits/%s/%s", entry->d_name, ID, entry->d_name);
             system(command);
@@ -1365,12 +1451,13 @@ int commit(char message[])
         
     }
     remove("stagingDoc");
+    
 
     if(chdir("..") != 0)
         return 1;
 
     FILE* tracks = fopen("tracks" ,"r");
-    char path[2000];
+    path[2000];
     while(fgets(path, sizeof(path), tracks) != NULL)
     {
         int len = strlen(path);
@@ -1380,10 +1467,12 @@ int commit(char message[])
         }
         char name[2000];
         nameFinder(name, path);
+        char newpath[3000];
+        sprintf(newpath, "commits/%s/%s",ID, name);
             
         if(access(path, F_OK) == -1)
         {
-            remove(name);
+            remove(newpath);
             FILE* tracks2 = fopen("tracks", "r");
             FILE* tracksfinal = fopen("tmp", "w");
 
@@ -1403,12 +1492,11 @@ int commit(char message[])
                         line2[len2 - 1] = '\0';
                     fprintf(tracksfinal, "%s\n", line2);
                 }
-                fclose(tracks2);
-                fclose(tracksfinal);
-                remove("tracks");
-                rename("tmp", "tracks");
-
             }
+            fclose(tracks2);
+            fclose(tracksfinal);
+            remove("tracks");
+            rename("tmp", "tracks");
     
         }
     }
@@ -1420,6 +1508,9 @@ int commit(char message[])
 
     chdir("commits");
     chdir(ID);
+    FILE* number = fopen("numberOfCommitedFiles", "w");
+    fprintf(number, "%d", num);
+    fclose(number);
 
     printf("ID : %d\nMessage : %s\nDate And Time of commit : %s", id, message, asctime(localTime));
 
@@ -1573,7 +1664,7 @@ int getTheNewestShortcutMessage(shortcut shortcuts[], int* size)
 }
 
 int status()
-{
+{    
     char cwd[1024];
     if (getcwd(cwd, sizeof(cwd)) == NULL)
         return 1;
@@ -1590,64 +1681,113 @@ int status()
 
     char ID[20];
     sprintf(ID, "%d", id);
+    int size = 0;   
 
-    
-    file = fopen("tracks", "r");
-
-    char line[2000];
-    int size = 0;
-    while(fgets(line, sizeof(line), file) != NULL)
+    file = fopen("staging/stagingDoc", "r");
+    if(file != NULL)
     {
-        int len = strlen(line);
-        if(line[len - 1] == '\n' && len > 0)
+        char line[2000];
+        while(fgets(line, sizeof(line), file) != NULL)
         {
-            line[len - 1] = '\0';
-        }
+            int len = strlen(line);
+            if(line[len - 1] == '\n' && len > 0)
+            {
+                line[len - 1] = '\0';
+            }
 
-        strcpy(files[size].path, line);
-        nameFinder(files[size].name, line);
-        if(access(line, F_OK)== -1)
-        {
-            files[size].state = 'D';
-        }
-        else if(id != 0)
-        {
+            strcpy(files[size].path, line);
+            nameFinder(files[size].name, line);
+            if(id != 0)
+            {
             
-            char filename[1000];
-            sprintf(filename,"commits/%s/tracks", ID);
-            FILE* lasttrack = fopen(filename, "r");
-            char khat[1000];
-            int exists = 1;
-            while(fgets(khat, sizeof(khat), lasttrack) != NULL)
-            {
-                int len = strlen(khat);
-                if(khat[len - 1] == '\n' && len > 0)
+                char filename[1000];
+                sprintf(filename,"commits/%s/tracks", ID);
+                FILE* lasttrack = fopen(filename, "r");
+                char khat[1000];
+                int exists = 1;
+                while(fgets(khat, sizeof(khat), lasttrack) != NULL)
                 {
-                    khat[len - 1] = '\0';
-                }
+                    int len = strlen(khat);
+                    if(khat[len - 1] == '\n' && len > 0)
+                    {
+                        khat[len - 1] = '\0';
+                    }
 
-                if(strcmp(khat, line) == 0)
-                {
-                    exists = 0;
-                    break;
+                    if(strcmp(khat, line) == 0)
+                    {
+                        exists = 0;
+                        break;
+                    }
                 }
+                fclose(lasttrack);
+                if(exists)
+                {
+                    files[size].state = 'A';
+                }
+                else
+                    files[size].state = '.';
+
             }
-            fclose(lasttrack);
-            if(exists)
-            {
-                files[size].state = 'A';
-            }
-            else
-                files[size].state = '.';
+            size ++;
+
         }
-        size ++;
-
-    }
         
-    fclose(file);
+        fclose(file);
+    }
+    if(id != 0)
+    {
+        char filename2[1000];
+        sprintf(filename2,"commits/%s/tracks", ID);
+        FILE* lasttrack = fopen(filename2, "r");
+        char line2[2000];
+        while((fgets(line2, sizeof(line2), lasttrack)) != NULL)
+        {
+            int len2 = strlen(line2);
+            if(line2[len2 - 1] == '\n' && len2 > 0)
+            {
+                line2[len2 - 1] = '\0';
+            }
+            int flag = 1;
+            for(int i = 0 ; i < size; i++)
+            {
+                if(strcmp(line2, files[i].path) == 0)
+                {      
+                    flag = 0;
+
+                    if(access(line2, F_OK)== -1)
+                    {   
+                        files[i].state = 'D';
+                        break;
+                    }
+                }
+            }
+            if(flag)
+            {
+                if(access(line2, F_OK)== -1)
+                {   
+                    files[size].state = 'D';
+                }
+                else
+                {
+                    files[size].state = '.';
+
+                }
+                strcpy(files[size].path, line2);
+                nameFinder(files[size].name, line2);
+                size ++;
+            }
+        }
+    }
 
     if(id == 0)
     {
+        FILE* file3 = fopen("staging/stagingDoc", "r");
+        if(file3 == NULL)
+        {
+            perror("you haven't staged any files yet!\n");
+            return 1;
+        }
+        fclose(file3);
         for(int i = 0 ; i < size; i++)
         {
             files[i].state = 'A';
@@ -1756,7 +1896,7 @@ int status()
     for(int i = 0 ; i < size ; i++)
     {
         if(files[i].state == 'M')
-        {                  
+        {    
             printf("%s ", files[i].name);
             printf("%c", files[i].staged);
             printf(yellow "M\n" resetcolor);
@@ -1775,7 +1915,7 @@ int status()
     for(int i = 0 ; i < size ; i++)
     {
         if(files[i].state == 'A')
-        {                  
+        {         
             printf("%s ", files[i].name);
             printf("%c", files[i].staged);
             printf(cyan "A\n" resetcolor);
@@ -1818,13 +1958,13 @@ int changeChecker()
         return 1;
     }
 
-    struct stat docinfo;
+    /*struct stat docinfo;
     if(stat("stagingDoc", &docinfo) == -1)
     {
         perror("an error accured!\n");
         chdir(cwd);
         return 1;
-    }
+    }*/
     
     char line[2000];
     while(fgets(line, sizeof(line), file) != NULL)
@@ -1840,7 +1980,7 @@ int changeChecker()
         {
             deleted = 1;
         }
-        struct stat fileinfo;
+        /*struct stat fileinfo;
 
         if(deleted == 0)
         {
@@ -1849,9 +1989,9 @@ int changeChecker()
             chdir(cwd);
             return 1;
             }
-        }
+        }*/
 
-        if(fileinfo.st_mtime > docinfo.st_mtime || deleted)
+        if(deleted)
         {
             FILE *file2 = fopen("stagingDoc", "r");
             FILE *tmp = fopen("tmp", "w");
@@ -1876,14 +2016,663 @@ int changeChecker()
             remove("stagingDoc");
             if(num > 0)
                 rename("tmp", "stagingDoc");
-            
-            char name[1000];
-            nameFinder(name, line);
-            remove(name);
+            if(num == 0)
+                remove("tmp");
+
+            if(deleted)
+            {
+                char name[2000];
+                nameFinder(name, line);
+                remove(line);
+            }
         }
 
     }
     fclose(file);
+    chdir(cwd);
+    return 0;
+}
+
+int branch(char name[])
+{
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return 1;
+
+    if(go_to_mmlrepo())
+        return 1;
+
+    FILE* commitId = fopen("configLastCommitID", "r");
+    int id;
+    char ID[20];
+    fscanf(commitId, "last_commit_ID : %d", &id);
+    sprintf(ID, "%d", id);
+    if(id == 0)
+    {
+        perror("you must commit at least once before creating a branch!\n");
+        chdir(cwd);
+        return 1;
+    }
+    
+    FILE* list = fopen("branchList", "r");
+    char line[2000];
+    while(fgets(line, sizeof(line), list) != NULL)
+    {
+        int len = strlen(line);
+        if(line[len - 1] == '\n' && len > 0)
+        {
+            line[len - 1] = '\0';
+        }
+        if (strcmp(line, name) == 0)
+        {
+            perror("branch already exists!\n");
+            chdir(cwd);
+            return 1;
+        }
+    }
+
+    FILE* branchList = fopen("branchList", "a");
+    fprintf(branchList, "%s\n", name);
+    fclose(branchList);
+    char father[2000];
+    FILE* fatherBranch = fopen("currentBranch", "r");
+    fgets(father, sizeof(father), fatherBranch);
+    int length = strlen(father);
+    if(father[length - 1] == '\n' && length > 0)
+        father[length - 1] = '\0';
+    fclose(fatherBranch);
+    
+    chdir("branches");
+    FILE* fileFather = fopen(father, "r");
+    int findnew;
+    fscanf(fileFather, "%d", &findnew);
+    fclose(fileFather);
+    char findNew[20];
+    sprintf(findNew, "%d", findnew);
+
+    chdir("..");
+    chdir("commits");
+
+    char command[2000];
+    char newId[20];
+    sprintf(newId, "%d", id + 1);
+
+
+    sprintf(command, "cp -r %s %s", findNew, newId);
+    system(command);
+    
+    chdir(newId);
+
+    FILE* branchName =  fopen("branchName", "w");
+    fprintf(branchName, "%s", name);
+    fclose(branchName);
+
+    chdir("..");
+    chdir("../branches");
+
+    FILE* branchlastcommit = fopen(name, "w");
+    fprintf(branchlastcommit, "%d", id + 1);
+    fclose(branchlastcommit);
+
+    chdir("..");
+    FILE* lastId = fopen("configLastCommitID", "w");
+    fprintf(lastId, "last_commit_ID : %d", id + 1);
+    fclose(lastId);
+    chdir(cwd);
+
+}
+
+int showBranches()
+{
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return 1;
+
+    if(go_to_mmlrepo())
+        return 1;
+
+    FILE *branchList = fopen("branchList", "r");
+    char line[2000];
+    while(fgets(line, sizeof(line), branchList) != NULL)
+    {
+        int len = strlen(line);
+        if(line[len - 1] == '\n' && len > 0)
+        {
+            line[len - 1] = '\0';
+        }
+        printf("%s\n", line);
+    }
+
+    chdir(cwd);
+}
+
+int mmllog(int n)
+{
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return 1;
+
+    if(go_to_mmlrepo())
+        return 1;
+
+    FILE* file = fopen("configLastCommitID", "r");
+    int num ;
+    fscanf(file, "last_commit_ID : %d", &num);
+    fclose(file);
+    if(n == -1)
+        n = num;
+
+    if(n < 1)
+    {
+        perror("you must enter a positive integer!\n");
+        return 1;
+    }
+
+    if(num == 0)
+    {
+        perror("You haven't commited anything yet!\n");
+        return 1;
+    }
+    for(int i = 0; i < n; i++)
+    {
+        if(go_to_mmlrepo())
+        return 1;
+        
+        int id = num - i;
+        char ID[20];
+        sprintf(ID, "%d", id);
+        chdir("commits");
+        chdir(ID);
+        
+        printf(red "Commit ID : %d\t\t" resetcolor, id);
+        
+        file = fopen("branchName", "r");
+        char branchName[1000];
+        fgets(branchName, sizeof(branchName), file);
+        int len = strlen(branchName);
+        if(branchName[len - 1] == '\n')
+        {
+            branchName[len - 1] = '\0';
+        }
+        fclose(file);
+        printf(red "Branch : %s\n" resetcolor, branchName);
+
+        file = fopen("owner", "r");
+        char username[2000], email[2000];
+        fgets(username, sizeof(username), file);
+        len = strlen(username);
+        if(username[len - 1] == '\n')
+            username[len - 1] = '\0';
+
+        fgets(email, sizeof(email), file);
+        len = strlen(email);
+        if(email[len - 1] == '\n')
+            email[len - 1] = '\0';
+
+        fclose(file);
+
+        printf(green "Owners username : %s\tOwners email : %s\n" resetcolor, username, email);
+        
+        file = fopen("message", "r");
+        char message[1000];
+        fgets(message, sizeof(message), file);
+        len = strlen(message);
+        if(message[len - 1] == '\n')
+            message[len - 1] = '\0';
+        fclose(file);
+            
+        printf(cyan "Commit message : %s\n" resetcolor, message);
+
+        file = fopen("timeAndDate", "r");
+        char time[1000];
+        fgets(time, sizeof(time), file);
+        len = strlen(time);
+        if(time[len - 1] == '\n')
+            time[len - 1] = '\0';
+        fclose(file);
+
+        printf("Committed on : %s\t\t", time);
+
+        file = fopen("numberOfCommitedFiles", "r");
+        char number[1000];
+        fgets(number, sizeof(number), file);
+        len = strlen(number);
+        if(number[len - 1] == '\n')
+            number[len - 1] = '\0';
+        fclose(file);
+
+        printf("Number of committed files : %s\n", number);
+
+    }
+
+    chdir(cwd);
+    return 0;
+    
+}
+
+int mmllogBranch(char name[])
+{
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return 1;
+
+    if(go_to_mmlrepo())
+        return 1;
+
+    FILE* branches = fopen("branchList", "r");
+    char line[2000];
+    int flag = 1;
+    while(fgets(line, sizeof(line), branches) != NULL)
+    {
+        int len = strlen(line);
+        if(line[len - 1] == '\n' && len > 0)
+            line[len - 1] = '\0';
+
+        if(strcmp(line, name) == 0)
+        {
+            flag = 0;
+            break;
+        }
+    }
+    fclose(branches);
+    if(flag)
+    {
+        perror("No branch exists with the given name!\n");
+        return 1;
+    }
+
+    if(chdir("branches") != 0)
+        return 1;
+
+    FILE* file = fopen(name, "r");
+    int id;
+    fscanf(file, "%d", &id);
+    fclose(file);
+
+    chdir("../commits");
+    while(id > 0)
+    {   
+        char ID[20];
+        sprintf(ID, "%d", id);
+        chdir(ID);
+        file = fopen("branchName", "r");
+        char branchName[2000];
+        fgets(branchName, sizeof(branchName), file);
+        int len = strlen(branchName);
+        fclose(file);
+        if(branchName[len - 1] == '\n' && len > 0)
+        {
+            branchName[len - 1] = '\0';
+        }
+        if (strcmp(branchName, name) == 0)
+        {
+            printf(red "Commit ID : %d\t\t" resetcolor, id);
+
+            file = fopen("owner", "r");
+            char username[2000], email[2000];
+            fgets(username, sizeof(username), file);
+            len = strlen(username);
+            if(username[len - 1] == '\n')
+                username[len - 1] = '\0';
+
+            fgets(email, sizeof(email), file);
+            len = strlen(email);
+            if(email[len - 1] == '\n')
+                email[len - 1] = '\0';
+
+            fclose(file);
+
+            printf(green "Owners username : %s\tOwners email : %s\n" resetcolor, username, email);
+        
+            file = fopen("message", "r");
+            char message[1000];
+            fgets(message, sizeof(message), file);
+            len = strlen(message);
+            if(message[len - 1] == '\n')
+                message[len - 1] = '\0';
+            fclose(file);
+            
+            printf(cyan "Commit message : %s\n" resetcolor, message);
+
+            file = fopen("timeAndDate", "r");
+            char time[1000];
+            fgets(time, sizeof(time), file);
+            len = strlen(time);
+            if(time[len - 1] == '\n')
+                time[len - 1] = '\0';
+            fclose(file);
+
+            printf("Committed on : %s\t\t", time);
+
+            file = fopen("numberOfCommitedFiles", "r");
+            char number[1000];
+            fgets(number, sizeof(number), file);
+            len = strlen(number);
+            if(number[len - 1] == '\n')
+                number[len - 1] = '\0';
+            fclose(file);
+
+            printf("Number of committed files : %s\n", number);
+
+        }
+        chdir("..");
+        id --;
+    }
+
+    chdir(cwd);
+    return 0;
+}
+
+int mmllogAuthor(char name[])
+{
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return 1;
+
+    if(go_to_mmlrepo())
+        return 1;
+
+    FILE* file = fopen("configLastCommitID", "r");
+    int id;
+    fscanf(file, "last_commit_ID : %d", &id);
+    fclose(file);
+
+    chdir("commits");
+    while(id > 0)
+    {   
+        char ID[20];
+        sprintf(ID, "%d", id);
+        chdir(ID);
+        file = fopen("owner", "r");
+        char ownersName[2000];
+        fgets(ownersName, sizeof(ownersName), file);
+        int len = strlen(ownersName);
+        fclose(file);
+
+        if(ownersName[len - 1] == '\n' && len > 0)
+        {
+            ownersName[len - 1] = '\0';
+        }
+        if (strcmp(ownersName, name) == 0)
+        {
+            printf(red "Commit ID : %d\t\t" resetcolor, id);
+
+            file = fopen("branchName", "r");
+            char branchName[1000];
+            fgets(branchName, sizeof(branchName), file);
+            int len = strlen(branchName);
+            if(branchName[len - 1] == '\n')
+            {
+                branchName[len - 1] = '\0';
+            }
+            fclose(file);
+            printf(red "Branch : %s\n" resetcolor, branchName);
+
+            file = fopen("owner", "r");
+            char username[2000], email[2000];
+            fgets(username, sizeof(username), file);
+            len = strlen(username);
+            if(username[len - 1] == '\n')
+                username[len - 1] = '\0';
+
+            fgets(email, sizeof(email), file);
+            len = strlen(email);
+            if(email[len - 1] == '\n')
+                email[len - 1] = '\0';
+
+            fclose(file);
+
+            printf(green "Owners email : %s\n" resetcolor, email);
+        
+            file = fopen("message", "r");
+            char message[1000];
+            fgets(message, sizeof(message), file);
+            len = strlen(message);
+            if(message[len - 1] == '\n')
+                message[len - 1] = '\0';
+            fclose(file);
+            
+            printf(cyan "Commit message : %s\n" resetcolor, message);
+
+            file = fopen("timeAndDate", "r");
+            char time[1000];
+            fgets(time, sizeof(time), file);
+            len = strlen(time);
+            if(time[len - 1] == '\n')
+                time[len - 1] = '\0';
+            fclose(file);
+
+            printf("Committed on : %s\t\t", time);
+
+            file = fopen("numberOfCommitedFiles", "r");
+            char number[1000];
+            fgets(number, sizeof(number), file);
+            len = strlen(number);
+            if(number[len - 1] == '\n')
+                number[len - 1] = '\0';
+            fclose(file);
+
+            printf("Number of committed files : %s\n", number);
+
+        }
+        chdir("..");
+        id --;
+    }
+
+    chdir(cwd);
+    return 0;
+
+}
+
+int mmllogDate(char date[], int n)
+{
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return 1;
+
+    if(go_to_mmlrepo())
+        return 1;
+
+    FILE* file = fopen("configLastCommitID", "r");
+    int id;
+    fscanf(file, "last_commit_ID : %d", &id);
+    fclose(file);
+
+    struct tm tmStruct;
+    int year, month;
+    sscanf(date, "%d %d %d %d:%d:%d", &year, &month, &tmStruct.tm_mday, &tmStruct.tm_hour, &tmStruct.tm_min, &tmStruct.tm_sec);
+    tmStruct.tm_year = year - 1900;
+    tmStruct.tm_mon = month - 1;
+
+    time_t timeval = mktime(&tmStruct);
+
+    chdir("commits");
+    while(id > 0)
+    {
+        char ID[20];
+        sprintf(ID, "%d", id);
+        chdir(ID);
+
+        file = fopen("timeAndDate.bin", "rb");
+        time_t saved;
+        fread(&saved, sizeof(time_t), 1, file);
+        fclose(file);
+
+        if((saved < timeval) ^ n)
+        {
+            printf(red "Commit ID : %d\t\t" resetcolor, id);
+        
+            file = fopen("branchName", "r");
+            char branchName[1000];
+            fgets(branchName, sizeof(branchName), file);
+            int len = strlen(branchName);
+            if(branchName[len - 1] == '\n')
+            {
+                branchName[len - 1] = '\0';
+            }
+            fclose(file);
+            printf(red "Branch : %s\n" resetcolor, branchName);
+
+            file = fopen("owner", "r");
+            char username[2000], email[2000];
+            fgets(username, sizeof(username), file);
+            len = strlen(username);
+            if(username[len - 1] == '\n')
+                username[len - 1] = '\0';
+
+            fgets(email, sizeof(email), file);
+            len = strlen(email);
+            if(email[len - 1] == '\n')
+                email[len - 1] = '\0';
+
+            fclose(file);
+
+            printf(green "Owners username : %s\tOwners email : %s\n" resetcolor, username, email);
+        
+            file = fopen("message", "r");
+            char message[1000];
+            fgets(message, sizeof(message), file);
+            len = strlen(message);
+            if(message[len - 1] == '\n')
+                message[len - 1] = '\0';
+            fclose(file);
+            
+            printf(cyan "Commit message : %s\n" resetcolor, message);
+
+            file = fopen("timeAndDate", "r");
+            char time[1000];
+            fgets(time, sizeof(time), file);
+            len = strlen(time);
+            if(time[len - 1] == '\n')
+                time[len - 1] = '\0';
+            fclose(file);
+
+            printf("Committed on : %s\t\t", time);
+
+            file = fopen("numberOfCommitedFiles", "r");
+            char number[1000];
+            fgets(number, sizeof(number), file);
+            len = strlen(number);
+            if(number[len - 1] == '\n')
+                number[len - 1] = '\0';
+            fclose(file);
+
+            printf("Number of committed files : %s\n", number);
+        }
+
+        chdir("..");
+        id --;
+    }
+
+    chdir(cwd);
+    return 0;
+}
+
+int mmllogSearch(char** word, int size)
+{
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return 1;
+
+    if(go_to_mmlrepo())
+        return 1;
+
+    FILE* file = fopen("configLastCommitID", "r");
+    int id;
+    fscanf(file, "last_commit_ID : %d", &id);
+    fclose(file);
+
+    chdir("commits");
+    while(id > 0)
+    {
+        char ID[20];
+        sprintf(ID, "%d", id);
+        chdir(ID);
+
+        FILE* file = fopen("message", "r");
+        char line[2000];
+        fgets(line, sizeof(line), file);
+        int len = strlen(line);
+        fclose(file);
+        
+        int exists = 0;
+        for(int i = 3 ; i < size; i++)
+        {
+            if(strstr(line, word[i]) != NULL)
+            {
+                exists = 1;
+                break;
+            }
+        }
+        if(exists)
+        {
+            printf(red "Commit ID : %d\t\t" resetcolor, id);
+        
+            file = fopen("branchName", "r");
+            char branchName[1000];
+            fgets(branchName, sizeof(branchName), file);
+            int len = strlen(branchName);
+            if(branchName[len - 1] == '\n')
+            {
+                branchName[len - 1] = '\0';
+            }
+            fclose(file);
+            printf(red "Branch : %s\n" resetcolor, branchName);
+
+            file = fopen("owner", "r");
+            char username[2000], email[2000];
+            fgets(username, sizeof(username), file);
+            len = strlen(username);
+            if(username[len - 1] == '\n')
+                username[len - 1] = '\0';
+
+            fgets(email, sizeof(email), file);
+            len = strlen(email);
+            if(email[len - 1] == '\n')
+                email[len - 1] = '\0';
+
+            fclose(file);
+
+            printf(green "Owners username : %s\tOwners email : %s\n" resetcolor, username, email);
+        
+            file = fopen("message", "r");
+            char message[1000];
+            fgets(message, sizeof(message), file);
+            len = strlen(message);
+            if(message[len - 1] == '\n')
+                message[len - 1] = '\0';
+            fclose(file);
+            
+            printf(cyan "Commit message : %s\n" resetcolor, message);
+
+            file = fopen("timeAndDate", "r");
+            char time[1000];
+            fgets(time, sizeof(time), file);
+            len = strlen(time);
+            if(time[len - 1] == '\n')
+                time[len - 1] = '\0';
+            fclose(file);
+
+            printf("Committed on : %s\t\t", time);
+
+            file = fopen("numberOfCommitedFiles", "r");
+            char number[1000];
+            fgets(number, sizeof(number), file);
+            len = strlen(number);
+            if(number[len - 1] == '\n')
+                number[len - 1] = '\0';
+            fclose(file);
+
+            printf("Number of committed files : %s\n", number);
+
+
+        }
+
+        chdir("..");
+        id --;
+    }
+
+
     chdir(cwd);
     return 0;
 }
@@ -2049,7 +2838,7 @@ int main(int argc, char * argv[])
                 perror("you should add a message!\n");
                 return 1;
             }
-            if(commit(argv[3]))
+            if(commit(argv[3], email, username))
                 return 1;
 
         }
@@ -2095,6 +2884,63 @@ int main(int argc, char * argv[])
     {
         if(status())
             return 1;
+    }
+
+    if(strcmp(argv[1], "branch") == 0)
+    {
+        if(argc == 3)
+        {
+            if(branch(argv[2]))
+                return 1;
+        }
+        if(argc == 2)
+        {
+            if(showBranches())
+                return 1;
+        }
+    }
+
+    if(strcmp(argv[1], "log") == 0)
+    {
+        if(argc == 2)
+        {
+            if(mmllog(-1))
+                return 1;
+        }
+        else if(strcmp(argv[2], "-n") == 0)
+        {
+            int n;
+            sscanf(argv[3], "%d", &n);
+            if(mmllog(n))
+                return 1;
+        }
+        else if(strcmp(argv[2], "-branch") == 0 && argc < 5)
+        {
+            return(mmllogBranch(argv[3]));
+        }
+        else if(strcmp(argv[2], "-author") == 0 && argc < 5)
+        {
+            return(mmllogAuthor(argv[3]));
+        }
+        else if(strcmp(argv[2], "-before") == 0 && argc < 5)//year month date hour:min:sec
+        {
+            return(mmllogDate(argv[3], 0));
+        }
+        else if(strcmp(argv[2], "-since") == 0 && argc < 5)//year month date hour:min:sec
+        {
+            return(mmllogDate(argv[3], 1));
+        }
+        else if(strcmp(argv[2], "-format") == 0 && argc < 5)
+        {
+            printf("for -before and -since use the format \"year month(in numbers) day(in month in numbers) hour:min:sec\"\n");
+            return 0;
+        }
+        else if(strcmp(argv[2], "-search") == 0 && argc > 3)
+        {
+            return(mmllogSearch(argv, argc));
+        }
+
+
     }
 
 }
