@@ -1295,6 +1295,19 @@ int commit(char message[], char email[], char username[])
     if(go_to_mmlrepo())
         return 1;
 
+    FILE* head = fopen("head", "r");
+    char headcur[2000];
+    fgets(headcur, sizeof(headcur), head);
+    int length = strlen(headcur);
+    if(headcur[length - 1] == '\n')
+        headcur[length - 1] = '\0';
+    fclose(head);
+    if(strcmp(headcur, "HEAD") != 0)
+    {
+        perror("you can only commit from the HEAD!\n");
+        return 1;
+    }
+
     if(access("staging/stagingDoc", F_OK)== -1)
     {
         perror("You haven't staged any changes!\n");
@@ -1403,6 +1416,19 @@ int commit(char message[], char email[], char username[])
         int len = strlen(path);
         if(path[len - 1] == '\n' && len > 0)
             path[len - 1] = '\0';
+
+        struct stat path_stat;
+        stat(path, &path_stat);
+        int isFile = 0;
+        if(S_ISREG(path_stat.st_mode))
+        {
+            isFile ++;
+        }
+
+        if(isFile == 0)
+        {
+            continue;
+        }
 
         FILE * tracks2 = fopen("tracks", "r");
         char line[2000];
@@ -1674,11 +1700,23 @@ int status()
 
     fileState files[500];
 
-    FILE *file = fopen("configLastCommitID", "r");
-    int id;
-    fscanf(file, "last_commit_ID : %d", &id);
+    FILE *file = fopen("currentBranch", "r");
+    char branch[2000];
+    fgets(branch, sizeof(branch), file);
     fclose(file);
+    int len = strlen(branch);
+    if(branch[len - 1] == '\n' && len > 0)
+    {
+        branch[len - 1] = '\0';
+    }
+    chdir("branches");
 
+    file = fopen(branch, "r");
+    int id;
+    fscanf(file, "%d", &id);
+    fclose(file);
+    chdir("..");
+    
     char ID[20];
     sprintf(ID, "%d", id);
     int size = 0;   
@@ -1693,6 +1731,18 @@ int status()
             if(line[len - 1] == '\n' && len > 0)
             {
                 line[len - 1] = '\0';
+            }
+            struct stat path_stat;
+            stat(line, &path_stat);
+            int isFile = 0;
+    
+            if(S_ISREG(path_stat.st_mode))
+            {
+                isFile ++;
+            }
+            if(isFile == 0)
+            {
+                continue;
             }
 
             strcpy(files[size].path, line);
@@ -2677,6 +2727,201 @@ int mmllogSearch(char** word, int size)
     return 0;
 }
 
+int checkoutId(char id[])
+{
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return 1;
+
+    if(go_to_mmlrepo())
+        return 1;
+
+    if(access("staging/stagingDoc", F_OK) != -1)
+    {
+        perror("You should commit or reset all your staged changes before you can checkout to another commit!\n");
+        return 1;
+    }
+
+    FILE* file = fopen("currentBranch", "r");
+    char branchName[2000];
+    fgets(branchName, sizeof(branchName), file);
+    fclose(file);
+
+    chdir("commits");
+    chdir(id);
+
+    file = fopen("branchName", "r");
+    char secName[2000];
+    fgets(secName, sizeof(secName), file);
+    fclose(file);
+    if(strcmp(secName, branchName) != 0)
+    {
+        perror("You can't checkout to a previous commit of another branch before checkingout to that branch!\n");
+        return 1;
+    }
+
+    file = fopen("tracks", "r");
+    char line[2000];
+    while(fgets(line, sizeof(line), file) != NULL)
+    {
+        int len = strlen(line);
+        if(line[len - 1] == '\n' && len > 0)
+            line[len - 1] = '\0';
+
+        char name[2000];
+        nameFinder(name, line);
+
+        if(access(name, F_OK) == -1)
+        {
+            perror("something is wrong with your stored commit\n");
+            return 1;
+        }
+
+        char command[5000];
+        sprintf(command, "cp -f %s %s", name, line);
+        system(command);
+
+    }
+    fclose(file);
+
+    FILE* file2 = fopen("../../tracks", "r");
+    while(fgets(line, sizeof(line), file2) != NULL)
+    {
+        int len = strlen(line);
+        if(line[len - 1] == '\n' && len > 0)
+            line[len - 1] = '\0';
+
+        file = fopen("tracks", "r");
+        char line2[2000];
+        int flag = 1;
+
+        while(fgets(line2, sizeof(line2), file) != NULL)
+        {
+            int len = strlen(line2);
+            if(line2[len - 1] == '\n' && len > 0)
+                line2[len - 1] = '\0';
+
+            if(strcmp(line2, line) == 0)
+            {
+                flag = 0; 
+                break;
+            }
+        }
+
+        fclose(file);
+        if(flag)
+        {
+            remove(line);
+        }
+    }
+    fclose(file2);
+
+    char command[3000];
+    sprintf(command, "cp -f tracks ../../tracks");
+    system(command);
+
+    chdir("../..");
+
+    chdir("branches");
+    int len = strlen(branchName);
+    if(branchName[len - 1] == '\n' && len > 0)
+        branchName[len - 1] = '\0';
+
+    FILE* file3 = fopen(branchName, "r");
+    int lastId;
+    char ID2[20];
+    fscanf(file3, "%d", &lastId);
+    fclose(file3);
+    sprintf(ID2, "%d", lastId);
+    chdir("..");
+    if(strcmp(id, ID2) == 0)
+    {
+        file = fopen("head", "w");
+        fprintf(file, "HEAD");
+        fclose(file);
+        chdir(cwd);
+        return 0;
+    }
+
+    file = fopen("head", "w");
+    fprintf(file, "Detached (%s)", id);
+    fclose(file);
+
+    chdir(cwd);
+    return 0;
+}
+
+int checkoutHead()
+{
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return 1;
+
+    if(go_to_mmlrepo())
+        return 1;
+
+    FILE *file = fopen("currentBranch", "r");
+    char branch[2000];
+    fgets(branch, sizeof(branch), file);
+    fclose(file);
+    int len = strlen(branch);
+    if(branch[len - 1] == '\n' && len > 0)
+    {
+        branch[len - 1] = '\0';
+    }
+    chdir("branches");
+
+    file = fopen(branch, "r");
+    int id;
+    fscanf(file, "%d", &id);
+    fclose(file);
+    chdir("..");
+
+    char ID[20];
+    sprintf(ID, "%d", id);
+    
+    chdir(cwd);
+    return(checkoutId(ID));
+}
+
+int checkoutBranch(char branch[])
+{
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return 1;
+
+    if(go_to_mmlrepo())
+        return 1;
+
+    FILE* branches = fopen("branchList", "r");
+    char line[2000];
+    int flag = 1;
+    while(fgets(line, sizeof(line), branches) != NULL)
+    {
+        int len = strlen(line);
+        if(line[len - 1] == '\n' && len > 0)
+            line[len - 1] = '\0';
+
+        if(strcmp(line, branch) == 0)
+        {
+            flag = 0;
+            break;
+        }
+    }
+    fclose(branches);
+    if(flag)
+    {
+        perror("No branch exists with the given name!\n");
+        return 1;
+    } 
+
+    FILE *file = fopen("currentBranch", "w");
+    fprintf(file, "%s", branch);
+    fclose(file);
+    chdir(cwd);
+    return(checkoutHead());
+}
+
 int main(int argc, char * argv[])
 {
     if (argc < 2) 
@@ -2890,6 +3135,11 @@ int main(int argc, char * argv[])
     {
         if(argc == 3)
         {
+            if(argv[2][0] >= '0' && argv[2][0] <= '9')
+            {
+                perror("The first character of you branch name can't be a digit!\n");
+                return 1;
+            }
             if(branch(argv[2]))
                 return 1;
         }
@@ -2941,6 +3191,22 @@ int main(int argc, char * argv[])
         }
 
 
+    }
+
+    if(strcmp(argv[1], "checkout") == 0)
+    {
+        if(strcmp(argv[2], "HEAD") == 0)
+        {
+            return(checkoutHead());
+        }
+        else if(argv[2][0] >= '0' && argv[2][0] <= '9')
+        {
+            return(checkoutId(argv[2]));
+        }
+        else
+        {
+            return(checkoutBranch(argv[2]));
+        }
     }
 
 }
