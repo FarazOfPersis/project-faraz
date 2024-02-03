@@ -1354,6 +1354,11 @@ int commit(char message[], char email[], char username[])
         sprintf(prevID, "%d", prevId);
         sprintf(command, "cp -r %s %s", prevID, ID);
         system(command);
+        chdir(ID);
+        FILE* prevIDD = fopen("prevId", "w");
+        fprintf(prevIDD, "%d", prevId);
+        fclose(prevIDD);
+        chdir("..");
     }
     else
     {
@@ -2103,7 +2108,16 @@ int branch(char name[])
         chdir(cwd);
         return 1;
     }
+    char findNew[20];
     
+    FILE* head = fopen("head", "r");
+    char state[2000];
+    fgets(state, sizeof(state), head);
+    int ln = strlen(state);
+    if(state[ln - 1] == '\n' && ln > 0)
+        state[ln - 1] = '\0';
+    fclose(head);
+
     FILE* list = fopen("branchList", "r");
     char line[2000];
     while(fgets(line, sizeof(line), list) != NULL)
@@ -2116,7 +2130,7 @@ int branch(char name[])
         if (strcmp(line, name) == 0)
         {
             perror("branch already exists!\n");
-            chdir(cwd);
+                chdir(cwd);
             return 1;
         }
     }
@@ -2124,29 +2138,35 @@ int branch(char name[])
     FILE* branchList = fopen("branchList", "a");
     fprintf(branchList, "%s\n", name);
     fclose(branchList);
-    char father[2000];
-    FILE* fatherBranch = fopen("currentBranch", "r");
-    fgets(father, sizeof(father), fatherBranch);
-    int length = strlen(father);
-    if(father[length - 1] == '\n' && length > 0)
-        father[length - 1] = '\0';
-    fclose(fatherBranch);
-    
-    chdir("branches");
-    FILE* fileFather = fopen(father, "r");
-    int findnew;
-    fscanf(fileFather, "%d", &findnew);
-    fclose(fileFather);
-    char findNew[20];
-    sprintf(findNew, "%d", findnew);
+    if (strcmp(state, "HEAD") != 0)
+    {
+        int new;
+        sscanf(state, "Detached (%d)", &new);
+        sprintf(findNew, "%d", new);
+    }
+    else
+    {
+        char father[2000];
+        FILE* fatherBranch = fopen("currentBranch", "r");
+        fgets(father, sizeof(father), fatherBranch);
+        int length = strlen(father);
+        if(father[length - 1] == '\n' && length > 0)
+            father[length - 1] = '\0';
+        fclose(fatherBranch);
 
-    chdir("..");
+        chdir("branches");
+        FILE* fileFather = fopen(father, "r");
+        int findnew;
+        fscanf(fileFather, "%d", &findnew);
+        fclose(fileFather);
+        sprintf(findNew, "%d", findnew);
+        chdir("..");
+    }
     chdir("commits");
 
     char command[2000];
     char newId[20];
     sprintf(newId, "%d", id + 1);
-
 
     sprintf(command, "cp -r %s %s", findNew, newId);
     system(command);
@@ -2922,6 +2942,37 @@ int checkoutBranch(char branch[])
     return(checkoutHead());
 }
 
+int checkoutHeadn(int n, int id)
+{
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return 1;
+
+    if(go_to_mmlrepo())
+        return 1;
+    
+    char ID[20];
+    sprintf(ID, "%d", id);
+    if(n == 0)
+    {
+        checkoutId(ID);
+        chdir(cwd);
+        return 0;
+    }
+
+    chdir("commits");
+    chdir(ID);
+
+    FILE* previd = fopen("prevId", "r");
+    int pre;
+    fscanf(previd, "%d", &pre);
+    fclose(previd);
+    chdir(cwd);
+
+    return (checkoutHeadn(n - 1, pre));
+
+}
+
 int main(int argc, char * argv[])
 {
     if (argc < 2) 
@@ -3062,10 +3113,22 @@ int main(int argc, char * argv[])
 
     if(strcmp(argv[1], "reset") == 0)
     {
+        if(strcmp(argv[2], "-f") == 0)
+        {
+            for(int i = 3; i < argc; i++)
+            {
+                char* path = realpath(argv[i], NULL);
+                if(reset(path))
+                    return 1;
+            }
+            return 0;
+        }
+
         for(int i = 2; i < argc; i++)
         {
             char* path = realpath(argv[i], NULL);
-            reset(path);
+            if(reset(path))
+                return 1;
         }
     }
 
@@ -3197,7 +3260,40 @@ int main(int argc, char * argv[])
     {
         if(strcmp(argv[2], "HEAD") == 0)
         {
-            return(checkoutHead());
+            if(argc == 3)
+                return(checkoutHead());
+
+            if(argc == 4)
+            {
+                char cwd[1024];
+                if (getcwd(cwd, sizeof(cwd)) == NULL)
+                    return 1;
+
+                if(go_to_mmlrepo())
+                    return 1;
+                    
+                FILE *file = fopen("currentBranch", "r");
+                char branch[2000];
+                fgets(branch, sizeof(branch), file);
+                fclose(file);
+                int len = strlen(branch);
+                if(branch[len - 1] == '\n' && len > 0)
+                {
+                    branch[len - 1] = '\0';
+                }
+                chdir("branches");
+
+                file = fopen(branch, "r");
+                int id;
+                fscanf(file, "%d", &id);
+                fclose(file);
+                chdir("..");
+
+                int n;
+                sscanf(argv[3], "-%d", &n);
+                chdir(cwd);
+                return(checkoutHeadn(n, id));
+            }
         }
         else if(argv[2][0] >= '0' && argv[2][0] <= '9')
         {
