@@ -16,6 +16,10 @@
 #define green "\x1b[32m"
 #define resetcolor "\x1b[0m"
 
+#ifndef DT_DIR
+#define DT_DIR 4
+#endif
+
 
 int go_to_mmlrepo()
 {
@@ -1011,7 +1015,7 @@ int add(char path[])
 
 }
 
-int showCurrentStagings()
+int showCurrentStagings(int depth, int finaldepth)
 {
     char cwd[1024];
     if (getcwd(cwd, sizeof(cwd)) == NULL)
@@ -1088,7 +1092,38 @@ int showCurrentStagings()
     while ((entry = readdir(dir)) != NULL) 
     {
         if(strcmp(entry->d_name, ".") != 0 &&  strcmp(entry->d_name, "..") != 0) 
-        {   
+        { 
+            if(entry->d_type == DT_DIR) 
+            {
+                int par = 1;
+                if(finaldepth - depth == 0)
+                {
+                    par = 0;
+                }
+                if(par)
+                {                        
+                    chdir(entry->d_name);
+                    for(int i = 0 ; i < depth - 1; i++)
+                    {
+                        printf("\t\t");
+                    }
+                    if(depth > 0)
+                    {
+                        for(int i = 0 ; i < 3; i++)
+                            printf("----");
+                    }
+                    if(entry->d_type == DT_DIR)
+                    {
+                        printf(green "%s\n" resetcolor, entry->d_name);
+                    }
+
+                    showCurrentStagings(depth + 1, finaldepth);
+                    chdir(cwd);
+
+                }
+                chdir(cwd);
+                continue;
+            } 
             char newPath[2000];
             sprintf(newPath, "%s/%s", cwd, entry->d_name);
             int flag = 0;
@@ -1100,8 +1135,20 @@ int showCurrentStagings()
                     break;
                 }
             }
-
-            if(flag)
+            for(int i = 0 ; i < depth - 1; i++)
+            {
+                printf("\t\t");
+            }
+            if(depth > 0)
+            {
+                for(int i = 0 ; i < 3; i++)
+                    printf("----");
+            }
+            if(entry->d_type == DT_DIR)
+            {
+                printf(green "%s\n" resetcolor, entry->d_name);
+            }
+            else if(flag)
             {
                 printf(cyan "%s : staged\n" resetcolor, entry->d_name);
             }
@@ -3097,7 +3144,11 @@ int main(int argc, char * argv[])
         }
         else if(strcmp(argv[2], "-n") == 0)
         {
-            if(showCurrentStagings())
+            if (argc == 3)
+                return (showCurrentStagings(0, 1));
+            int depth;
+            sscanf(argv[3], "%d", &depth);
+            if(showCurrentStagings(0, depth))
                 return 1;
         }
         else
