@@ -302,6 +302,11 @@ int create_configs(char *username, char *email)
         perror("unable to create the repository!\n");
         return 1;
     }
+    if (mkdir(".mml/tags", 0755) != 0) 
+    {    
+        perror("unable to create the repository!\n");
+        return 1;
+    }
 
     file = fopen(".mml/branches/master", "w");
     fprintf(file, "%d", 0);
@@ -1333,7 +1338,7 @@ int reset(char path[])
     
 }
 
-int commit(char message[], char email[], char username[])
+int commit(char *message, char email[], char username[])
 {
     char cwd[1024];
     if (getcwd(cwd, sizeof(cwd)) == NULL)
@@ -2805,7 +2810,7 @@ int checkoutId(char id[])
 
     if(access("staging/stagingDoc", F_OK) != -1)
     {
-        perror("You should commit or reset all your staged changes before you can checkout to another commit!\n");
+        perror("You should commit or reset all your staged changes first!\n");
         return 1;
     }
 
@@ -2823,7 +2828,7 @@ int checkoutId(char id[])
     fclose(file);
     if(strcmp(secName, branchName) != 0)
     {
-        perror("You can't checkout to a previous commit of another branch before checkingout to that branch!\n");
+        perror("You have to checkout to the branch of the given commit first!\n");
         return 1;
     }
 
@@ -3019,6 +3024,304 @@ int checkoutHeadn(int n, int id)
     return (checkoutHeadn(n - 1, pre));
 
 }
+
+int revert(char* message, char id[], int commitExistance, char email[], char username[])
+{
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return 1;
+
+    if(go_to_mmlrepo())
+        return 1;
+
+    if(checkoutId(id))
+        return 1;
+
+    FILE* file = fopen("head", "w");
+    fprintf(file, "HEAD");
+    fclose(file);
+
+    file = fopen("currentBranch", "r");
+    char branch[2000];
+    fgets(branch, sizeof(branch), file);
+    fclose(file);
+    int len = strlen(branch);
+    if(branch[len - 1] == '\n' && len > 0)
+    {
+        branch[len - 1] = '\0';
+    }
+    chdir("branches");
+
+    file = fopen(branch, "w");
+    fprintf(file, "%s", id);
+    fclose(file);
+    chdir("..");
+    
+    if(commitExistance)
+    {
+        if(message == NULL)
+        {
+            chdir("commits");
+            chdir(id);
+            FILE* file = fopen("message", "r");
+            char new[2000];
+            fgets(new, sizeof(new), file);
+            fclose(file);
+            message = new;
+            chdir("../..");
+        }
+        FILE* tmp = fopen("staging/stagingDoc", "w");
+        fclose(tmp);
+
+        if(commit(message, email, username))
+            return 1;
+
+        remove("staging/stagingDoc");
+
+    }
+    chdir(cwd);
+    return 0;
+}
+
+int revertx(char* message, int ID, int n, int commitExistance, char email[], char username[])
+{
+
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return 1;
+
+    if(go_to_mmlrepo())
+        return 1;
+
+    if(checkoutHeadn(n, ID))
+        return 1;
+
+    char id[20];
+    FILE* file = fopen("head", "r");
+    int Id;
+    fscanf(file, "Detached (%d)", &Id);
+    fclose(file);
+    sprintf(id, "%d", Id);
+
+    file = fopen("head", "w");
+    fprintf(file, "HEAD");
+    fclose(file);
+
+    file = fopen("currentBranch", "r");
+    char branch[2000];
+    fgets(branch, sizeof(branch), file);
+    fclose(file);
+    int len = strlen(branch);
+    if(branch[len - 1] == '\n' && len > 0)
+    {
+        branch[len - 1] = '\0';
+    }
+    chdir("branches");
+
+    file = fopen(branch, "w");
+    fprintf(file, "%s", id);
+    fclose(file);
+    chdir("..");
+    
+    if(commitExistance)
+    {
+        if(message == NULL)
+        {
+            chdir("commits");
+            chdir(id);
+            FILE* file = fopen("message", "r");
+            char new[2000];
+            fgets(new, sizeof(new), file);
+            fclose(file);
+            message = new;
+            chdir("../..");
+        }
+        FILE* tmp = fopen("staging/stagingDoc", "w");
+        fclose(tmp);
+
+        if(commit(message, email, username))
+            return 1;
+
+        remove("staging/stagingDoc");
+
+    }
+    chdir(cwd);
+    return 0;
+
+
+
+}
+
+int createTag(char name[], char *message, char email[], char username[], int force, int id)
+{ 
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return 1;
+
+    if(go_to_mmlrepo())
+        return 1;
+ 
+    chdir("tags");
+    DIR* dir = opendir(".");
+    struct dirent* entry;
+    int exists = 0;
+    while((entry = readdir(dir)) != NULL)
+    {
+        if(strcmp(entry->d_name, name) == 0)
+        {
+            exists = 1;
+            if(force)
+            {
+                char command[2000];
+                sprintf(command, "rm -r %s", name);
+                system(command);
+            }
+            break;
+        }
+    }
+    closedir(dir);
+    if(exists && (force == 0))
+    {
+        perror("This tag already exists!\n");
+        return 1;
+    }
+
+    if (mkdir(name, 0755) != 0) 
+    {    
+        perror("unable to create the tag directory!\n");
+        return 1;
+    }
+
+    chdir(name);
+
+    FILE* owner = fopen("owner", "w");
+    fprintf(owner, "%s\n%s", username, email);
+    fclose(owner);
+
+    FILE* commitId= fopen("commitId", "w");
+    fprintf(commitId, "%d", id);
+    fclose(commitId);
+
+    FILE* timeAndDate = fopen("timeAndDate", "w");
+    time_t currentTime;
+    time(&currentTime);
+    struct tm *localTime = localtime(&currentTime);
+    fprintf(timeAndDate, "%s\n", asctime(localTime));
+    fclose(timeAndDate);
+
+    FILE* messagee = fopen("message", "w");
+    fprintf(messagee, "%s", message);
+    fclose(messagee);
+
+    chdir(cwd);
+    return 0;
+}
+
+int showallTags()
+{
+    char tags[100][1000];
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return 1;
+
+    if(go_to_mmlrepo())
+        return 1;
+ 
+    chdir("tags");
+    DIR* dir = opendir(".");
+    struct dirent* entry;
+    int size = 0;
+    while((entry = readdir(dir)) != NULL)
+    {
+        if(strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0)
+        {
+            strcpy(tags[size], entry->d_name);
+            size ++;
+        }
+    }
+    closedir(dir);
+    for(int i = 0 ; i < size - 1 ; i++)
+        for(int j = 0; j < size - i - 1; j++)
+        {
+            if(strcmp(tags[i], tags[i + 1]) > 0)
+            {
+                char tmp[2000];
+                strcpy(tmp, tags[i]);
+                strcpy(tags[i], tags[i + 1]);
+                strcpy(tags[i + 1], tmp);
+            }
+        }
+    for(int i = 0 ; i < size; i++)
+        printf("%s\n", tags[i]);
+
+    chdir(cwd);
+    return 0;
+}
+
+int showTagDetailed(char name[])
+{
+    char tags[100][1000];
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return 1;
+
+    if(go_to_mmlrepo())
+        return 1;
+
+    chdir("tags");
+    if(chdir(name) != 0)
+    {
+        perror("This tag doesn't exist!\n");
+        return 1;
+    }
+
+    printf(yellow "Tag name : %s\n" resetcolor, name);
+
+    FILE* file = fopen("commitId", "r");
+    int id;
+    fscanf(file, "%d", &id);
+    fclose(file);
+    printf(red "Commit ID : %d\n" resetcolor, id);
+
+    file = fopen("owner", "r");
+    char email[2000], username[2000];
+
+    fgets(username, sizeof(username), file);
+    int len = strlen(username);
+    if(username[len - 1] == '\n' && len > 0)
+        username[len - 1] = '\0';
+
+    fgets(email, sizeof(email), file);
+    len = strlen(email);
+    if(email[len - 1] == '\n' && len > 0)
+        email[len - 1] = '\0';  
+
+    fclose(file);
+    printf(green "Author : %s <%s>\n", username, email);
+
+    file = fopen("message", "r");
+    char message[2000];
+    fgets(message, sizeof(message), file);
+    len = strlen(message);
+    if(message[len - 1] == '\n' && len > 0)
+        message[len - 1] = '\0';
+    fclose(file); 
+    printf(cyan "Message : %s\n" resetcolor , message);
+
+    file = fopen("timeAndDate", "r");
+    char date[2000];
+    fgets(date, sizeof(date), file);
+    len = strlen(date);
+    if(date[len - 1] == '\n' && len > 0)
+        date[len - 1] = '\0';
+    fclose(file); 
+    printf("Date : %s\n", date);
+
+    chdir(cwd);
+    return 0;
+}
+
+
 
 int main(int argc, char * argv[])
 {
@@ -3353,6 +3656,219 @@ int main(int argc, char * argv[])
         else
         {
             return(checkoutBranch(argv[2]));
+        }
+    }
+
+    if(strcmp(argv[1], "revert") == 0)
+    {
+        if(strcmp(argv[2], "-m") == 0)
+        {
+            if(strcmp(argv[4], "HEAD") == 0)
+            {
+                char cwd[1024];
+                if (getcwd(cwd, sizeof(cwd)) == NULL)
+                    return 1;
+
+                if(go_to_mmlrepo())
+                    return 1;
+                    
+                FILE *file = fopen("currentBranch", "r");
+                char branch[2000];
+                fgets(branch, sizeof(branch), file);
+                fclose(file);
+                int len = strlen(branch);
+                if(branch[len - 1] == '\n' && len > 0)
+                {
+                    branch[len - 1] = '\0';
+                }
+                chdir("branches");
+
+                file = fopen(branch, "r");
+                int id;
+                fscanf(file, "%d", &id);
+                fclose(file);
+                chdir("..");
+
+                int n;
+                sscanf(argv[5], "-%d", &n);
+                chdir(cwd);
+                return(revertx(argv[3], id, n, 1, email, username));
+            }
+            return (revert(argv[3], argv[4], 1, email, username));
+        }
+        if(strcmp(argv[2], "-n") == 0)
+        {
+            return (revert(NULL, argv[3], 0, email, username));
+        }
+        else
+        {
+            if(strcmp(argv[2], "HEAD") == 0)
+            {
+                char cwd[1024];
+                if (getcwd(cwd, sizeof(cwd)) == NULL)
+                    return 1;
+
+                if(go_to_mmlrepo())
+                    return 1;
+                    
+                FILE *file = fopen("currentBranch", "r");
+                char branch[2000];
+                fgets(branch, sizeof(branch), file);
+                fclose(file);
+                int len = strlen(branch);
+                if(branch[len - 1] == '\n' && len > 0)
+                {
+                    branch[len - 1] = '\0';
+                }
+                chdir("branches");
+
+                file = fopen(branch, "r");
+                int id;
+                fscanf(file, "%d", &id);
+                fclose(file);
+                chdir("..");
+
+                int n;
+                sscanf(argv[3], "-%d", &n);
+                chdir(cwd);
+                return(revertx(NULL, id, n, 1, email, username));
+            }
+            return (revert(NULL, argv[2], 1, email, username));
+        }
+
+    }
+
+    if(strcmp(argv[1], "tag") == 0)
+    {
+        if(argc == 2)
+        {
+            return(showallTags());
+        }
+        if(strcmp(argv[2], "show") == 0)
+        {
+            return (showTagDetailed(argv[3]));
+        }
+        if(strcmp(argv[2], "-a") == 0)
+        {
+            char message[2000] = " ";
+            int id = 0;
+            int force = 0;
+            if(argc == 4)
+            {
+                char cwd[1024];
+                if (getcwd(cwd, sizeof(cwd)) == NULL)
+                    return 1;
+
+                if(go_to_mmlrepo())
+                    return 1;
+
+                FILE* file = fopen("head", "r"); 
+                char state[2000];
+                fgets(state, sizeof(state), file);
+                fclose(file);
+
+                if(state[0] == 'D')
+                {
+                    sscanf(state, "Detached (%d)", &id);
+                }
+
+                else
+                {
+                    file = fopen("currentBranch", "r");
+                    char branch[2000];
+                    fgets(branch, sizeof(branch), file);
+                    fclose(file);
+                    int len = strlen(branch);
+                    if(branch[len - 1] == '\n' && len > 0)
+                    {
+                        branch[len - 1] = '\0';
+                    }
+
+                    chdir("branches");
+                    file = fopen(branch, "r");
+                    fscanf(file, "%d", &id);
+                    fclose(file);
+                }
+                chdir(cwd);
+
+                return(createTag(argv[3], " ", email, username, 0, id));
+            }
+            if(argc > 4)
+            {
+                if(strcmp(argv[4], "-m") == 0)
+                {
+                    strcpy(message, argv[5]);
+                }
+                
+                if(strcmp(argv[4], "-c") == 0)
+                {
+                    sscanf(argv[5], "%d", &id);
+                }
+                if(strcmp(argv[4], "-f") == 0)
+                {
+                    force = 1;
+                }
+            }
+            if(argc > 6)
+            {
+                if(strcmp(argv[6], "-c") == 0)
+                {
+                    sscanf(argv[7], "%d", &id);
+                }
+                if(strcmp(argv[6], "-f") == 0)
+                {
+                    force = 1;
+                }
+            }
+            if(argc > 8)
+            {
+                if(strcmp(argv[8], "-f") == 0)
+                {
+                    force = 1;
+                }
+            }
+            
+            if(id == 0)
+            {
+                char cwd[1024];
+                if (getcwd(cwd, sizeof(cwd)) == NULL)
+                    return 1;
+
+                if(go_to_mmlrepo())
+                    return 1;
+
+                FILE* file = fopen("head", "r"); 
+                char state[2000];
+                fgets(state, sizeof(state), file);
+                fclose(file);
+
+                if(state[0] == 'D')
+                {
+                    sscanf(state, "Detached (%d)", &id);
+                }
+
+                else
+                {
+                    file = fopen("currentBranch", "r");
+                    char branch[2000];
+                    fgets(branch, sizeof(branch), file);
+                    fclose(file);
+                    int len = strlen(branch);
+                    if(branch[len - 1] == '\n' && len > 0)
+                    {
+                        branch[len - 1] = '\0';
+                    }
+
+                    chdir("branches");
+                    file = fopen(branch, "r");
+                    fscanf(file, "%d", &id);
+                    fclose(file);
+                }
+                chdir(cwd);
+
+            }
+            return(createTag(argv[3] , message, email, username, force , id));
+
         }
     }
 
