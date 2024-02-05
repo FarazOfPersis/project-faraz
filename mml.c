@@ -286,12 +286,6 @@ int create_configs(char *username, char *email)
         return 1;
     }
 
-    if (mkdir(".mml/files", 0755) != 0) 
-    {
-        perror("unable to create the repository!\n");
-        return 1;
-    }
-
     if (mkdir(".mml/staging", 0755) != 0) 
     {    
         perror("unable to create the repository!\n");
@@ -3321,7 +3315,429 @@ int showTagDetailed(char name[])
     return 0;
 }
 
+typedef struct gholab
+{
+    char hookname[100];
+    int status;
+}hook;
 
+typedef struct pish
+{
+    char name[1000];
+    hook hooks[10];
+
+}precommit;
+
+int todo_hook(char name[])
+{
+    FILE* file = fopen(name, "r");
+    char line[2000];
+    while(fgets(line, sizeof(line), file) != NULL)
+    {
+        char* pointer;
+        if((pointer = strstr(line, "//")) != NULL && (strstr(name, ".c") != NULL || strstr(name, ".cpp") != NULL))
+        {
+            if(strstr(pointer , "TODO") != NULL)
+            {
+                fclose(file);
+                return 0;
+            }
+        }
+        if(strstr(line, "TODO") != NULL && strstr(name, ".txt") != NULL)
+        {
+            fclose(file);
+            return 0;
+        }
+    }
+    return 1;
+}
+
+int balance_braces(char name[])
+{
+
+    FILE *file = fopen(name, "r");
+    int brace;
+    int num = 0;
+    int numb = 0;
+    int numbe = 0;
+    int place = 0;
+    while((brace = fgetc(file)) != EOF)
+    {
+        place ++;
+        int num2 = num;
+        if(brace == '(')
+        {         
+            num ++;
+            
+            FILE* file2 = fopen(name, "r");
+            int brace2;
+            int flag = 1;
+            int num3 = num;
+            int place2 = 0;
+            while((brace2 = fgetc(file2)) != EOF)
+            {
+                place2 ++;
+                if(brace2 == ')')
+                {
+                    if(num3 == 1)
+                    {
+                        if(place2 < place)
+                            return 0;
+                            
+                        flag = 0;
+                        break;
+                    }
+                    else
+                    {
+                        num3 --;
+                        continue;
+                    }
+                }
+            }
+            fclose(file2);
+            if(flag)
+            {
+                return 0;
+            }
+        }
+        if(brace == '{')
+        {
+            numb ++;
+            
+            FILE* file2 = fopen(name, "r");
+            int brace2;
+            int flag = 1;
+            int num3 = numb;
+            int place2 = 0;
+            while((brace2 = fgetc(file2)) != EOF)
+            {
+                place2 ++;
+                if(brace2 == '}')
+                {
+                    if(num3 == 1)
+                    {
+                        if(place2 < place)
+                            return 0;
+                        flag = 0;
+                        break;
+                    }
+                    else
+                    {
+                        num3 --;
+                        continue;
+                    }
+                }
+            }
+            fclose(file2);
+            if(flag)
+            {
+                return 0;
+            }
+        }
+        if(brace == '[')
+        {
+            numbe ++;
+        
+            FILE* file2 = fopen(name, "r");
+            int brace2;
+            int flag = 1;
+            int num3 = numbe;
+            int place2 = 0;
+            while((brace2 = fgetc(file2)) != EOF)
+            {
+                place2 ++;
+                if(brace2 == ']')
+                {
+                    
+                    if(num3 == 1)
+                    {
+                        if(place2 < place)
+                        {
+                            return 0;
+                        }
+                        flag = 0;
+                        break;
+                    }
+                    else
+                    {
+                        num3 --;
+                        continue;
+                    }
+                }
+            }
+            fclose(file2);
+            if(flag)
+            {
+                return 0;
+            }
+        }
+    }
+    fclose(file);
+    return 1;
+}
+
+int charLimit(char name[])
+{
+    FILE* file = fopen(name, "r");
+    int character;
+    int num = 0;
+    while((character = fgetc(file)) != EOF)
+    {
+        num ++;
+        if(num > 20000)
+            return 0;
+    }
+    fclose(file);
+    return 1;
+}
+
+int sizeCheck(char name[])
+{
+    FILE* file = fopen(name, "rb");
+
+    fseek(file, 0, SEEK_END);
+    long long size = ftell(file);
+    fclose(file);
+
+    if(size > 5000000)
+        return 0;
+
+    return 1;
+}
+
+int whitespace(char name[])
+{
+    FILE* file = fopen(name, "r");
+    int character;
+    char save;
+    while((character = fgetc(file)) != EOF)
+    {
+        save = character;
+    }
+    if(save == ' ' || save == '\n' || save == '\t')
+        return 0;
+
+    return 1;
+}
+
+int pre_commit()
+{
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return 1;
+
+    if(go_to_mmlrepo())
+        return 1;
+
+    FILE* file = fopen("hooks", "r");
+    chdir("staging");
+    DIR* dir = opendir(".");
+    struct dirent* entry;
+    int size = 0;
+    precommit elements[500];
+    while((entry = readdir(dir)) != NULL)
+    {
+        if(strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0 && strcmp(entry->d_name, "stagingDoc") != 0)
+        {
+            strcpy(elements[size].name , entry->d_name);
+            size ++;
+        }
+    }
+    closedir(dir);
+
+    char line[2000];
+    int num = 0;
+    while(fgets(line, sizeof(line), file) != NULL)
+    {
+        num ++;
+        int len = strlen(line);
+        if(line[len - 1] == '\n' && len > 0)
+        {
+            line[len - 1] = '\0';
+        }
+        if(strcmp(line, "todo-check") == 0)
+        {
+            for(int i = 0 ; i < size; i++)
+            {
+                if(strstr(elements[i].name, ".c") != NULL || strstr(elements[i].name, ".cpp") != NULL || strstr(elements[i].name, ".txt") != NULL)
+                {
+                    strcpy(elements[i].hooks[0].hookname, "todo-check");
+                    elements[i].hooks[0].status = todo_hook(elements[i].name);
+                }
+                else
+                {   
+                    strcpy(elements[i].hooks[0].hookname, "todo-check");
+                    elements[i].hooks[0].status = -1;
+                }
+            }
+        }
+        if(strcmp(line, "format-check") == 0)
+        {
+            for(int i = 0 ; i < size; i++)
+            {
+                if(strstr(elements[i].name, ".c") != NULL || strstr(elements[i].name, ".cpp") != NULL || strstr(elements[i].name, ".txt") != NULL || strstr(elements[i].name, ".mp3") != NULL|| strstr(elements[i].name, ".mp4") != NULL|| strstr(elements[i].name, ".exe") != NULL|| strstr(elements[i].name, ".wav") != NULL)
+                {
+                    strcpy(elements[i].hooks[1].hookname, "format-check");
+                    elements[i].hooks[1].status = 1;
+                }
+                else 
+                {
+                    strcpy(elements[i].hooks[1].hookname, "format-check");
+                    elements[i].hooks[1].status = 0;
+                }
+            }
+        }
+        if(strcmp(line, "balance-braces") == 0)
+        {
+            for(int i = 0 ; i < size; i++)
+            {
+                if(strstr(elements[i].name, ".c") != NULL || strstr(elements[i].name, ".cpp") != NULL || strstr(elements[i].name, ".txt") != NULL)
+                {
+                    strcpy(elements[i].hooks[2].hookname, "balance-braces");
+                    elements[i].hooks[2].status = balance_braces(elements[i].name);
+                }
+                else
+                {   
+                    strcpy(elements[i].hooks[2].hookname, "balance-braces");
+                    elements[i].hooks[2].status = -1;
+                }
+            }
+        }
+        if(strcmp(line, "character-limit") == 0)
+        {
+            for(int i = 0 ; i < size; i++)
+            {
+                if(strstr(elements[i].name, ".c") != NULL || strstr(elements[i].name, ".cpp") != NULL || strstr(elements[i].name, ".txt") != NULL)
+                {
+                    strcpy(elements[i].hooks[3].hookname, "character-limit");
+                    elements[i].hooks[3].status = charLimit(elements[i].name);
+                }
+                else
+                {   
+                    strcpy(elements[i].hooks[3].hookname, "character-limit");
+                    elements[i].hooks[3].status = -1;
+                }
+            }
+        }
+        if(strcmp(line, "file-size-check") == 0)
+        {
+            for(int i = 0 ; i < size; i++)
+            {
+                strcpy(elements[i].hooks[4].hookname, "file-size-check");
+                elements[i].hooks[4].status = sizeCheck(elements[i].name);
+                
+            }
+        }
+        if(strcmp(line, "eof-blank-space") == 0)
+        {
+            for(int i = 0 ; i < size; i++)
+            {
+                if(strstr(elements[i].name, ".c") != NULL || strstr(elements[i].name, ".cpp") != NULL || strstr(elements[i].name, ".txt") != NULL)
+                {
+                    strcpy(elements[i].hooks[5].hookname, "eof-blank-space");
+                    elements[i].hooks[5].status = whitespace(elements[i].name);
+                }
+                else
+                {   
+                    strcpy(elements[i].hooks[5].hookname, "eof-blank-space");
+                    elements[i].hooks[5].status = -1;
+                }
+            }
+        }
+
+    }
+
+    for(int i = 0 ; i < size; i++)
+    {
+        printf(yellow "\"%s\"\n" resetcolor, elements[i].name);
+        for(int j = 0 ; j < num; j++)
+        {
+            printf("%s", elements[i].hooks[j].hookname);
+            int dots = 60 - strlen(elements[i].hooks[j].hookname) - 6;
+            for(int k = 0 ; k < dots; k++)
+                printf(".");
+            
+            if(elements[i].hooks[j].status == 1)
+                printf(green "PASSED\n" resetcolor);
+
+            else if(elements[i].hooks[j].status == 0)
+                printf(red "FAILED\n" resetcolor);
+
+            else
+                printf(cyan "SKIPPED\n" resetcolor);
+        }
+    }
+
+    chdir(cwd);
+    return 0;
+}
+
+int grep(char word[], char path[], char commit[], int showline)
+{
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return 1;
+
+    if(go_to_mmlrepo())
+        return 1;
+
+    FILE *file;
+
+    if(strcmp(commit, "current") == 0)
+    {
+        file = fopen(path, "r");
+    }
+    else
+    {
+        chdir("commits");
+        chdir(commit);
+        char name[2000];
+        nameFinder(name, path);    
+        chdir(commit);
+        file = fopen(name, "r");
+        chdir("../..");
+
+    }
+    
+    char line[2000];
+    int num = 0;
+    while(fgets(line, sizeof(line), file) != NULL)
+    {
+        num ++;
+        int len = strlen(line);
+        if(line[len - 1] == '\n' && len > 0)
+            line[len - 1] = '\0';
+
+        char* pointer = line;
+        char* string = line;
+        int flag = 0;
+        int flag2 = 1;
+        while((pointer = strstr(pointer, word)) != NULL)
+        {
+            flag = 1;
+            if(showline && flag2)
+            {
+                printf(red "%d." resetcolor, num);
+                flag2 = 0;
+            }
+
+            printf(cyan "%.*s" resetcolor, (int)(pointer - string), string);
+            printf(yellow "%s" resetcolor, word);
+            pointer += strlen(word);
+            string = pointer;
+        } 
+        if(flag)
+        {
+            printf(cyan "%s" resetcolor, string);         
+            printf("\n");
+        }
+
+    }
+    fclose(file);
+
+    chdir(cwd);
+    return 0;
+}
 
 int main(int argc, char * argv[])
 {
@@ -3870,6 +4286,167 @@ int main(int argc, char * argv[])
             return(createTag(argv[3] , message, email, username, force , id));
 
         }
+    }
+
+    if(strcmp(argv[1], "pre-commit") == 0)
+    {
+        if(argc == 2)
+        {
+            return (pre_commit());
+        }
+        if(strcmp(argv[2], "hooks") == 0 && strcmp(argv[3], "list") == 0)
+        {
+            printf(yellow "ID : todo-check\n" resetcolor);
+            printf(cyan "Description : There should not be any TODO commnets in c or cpp files and no TODO s in txt files\n" resetcolor);
+            printf(red "File formats : .c & .cpp & .txt\n");
+            printf(yellow "ID : format-check\n" resetcolor);
+            printf(cyan "Description : Checks if the format of the file is one of the 7 accepted formats\n" resetcolor);
+            printf(red "File formats : .c & .cpp & .txt & .mp3 & .mp4 & .wav & .exe\n");
+            printf(yellow "ID : balance-braces\n" resetcolor);
+            printf(cyan "Description : Checks if for every opening brace \"([{\" there exists a closeing one\n" resetcolor);
+            printf(red "File formats : .c & .cpp & .txt\n");
+            printf(yellow "ID : character-limit\n" resetcolor);
+            printf(cyan "Description : Checks if the number of charecters in the file are less than 20000\n" resetcolor);
+            printf(red "File formats : .c & .cpp & .txt\n");
+            printf(yellow "ID : file-size-check\n" resetcolor);
+            printf(cyan "Description : Checks if the size of the file is less than 5 MB\n" resetcolor);
+            printf(red "File formats : all formats\n");
+            printf(yellow "ID : eof-blank-space\n" resetcolor);
+            printf(cyan "Description : Checks for any blank spaces at the end of the file\n" resetcolor);
+            printf(red "File formats : .c & .cpp & .txt\n");
+            return 0;
+        }
+        if(strcmp(argv[2], "applied") == 0 && strcmp(argv[3], "hooks") == 0)
+        {
+            char tags[100][1000];
+            char cwd[1024];
+            if (getcwd(cwd, sizeof(cwd)) == NULL)
+                return 1;
+
+            if(go_to_mmlrepo())
+                return 1;
+
+            FILE* file = fopen("hooks", "r");
+            if(file == NULL)
+            {
+                perror("You haven't added any hooks yet!\n");
+                return 1;
+            }
+
+            char line[2000];
+            while(fgets(line, sizeof(line), file) != NULL)
+            {
+                int len = strlen(line);
+                if(line[len - 1] == '\n' && len > 0)
+                {
+                    line[len - 1] = '\0';
+                }
+                printf("%s\n", line);
+            }
+            fclose(file);
+
+            chdir(cwd);
+            return 0;
+        }
+        if(strcmp(argv[2], "add") == 0 && strcmp(argv[3], "hook") == 0)
+        {
+            char tags[100][1000];
+            char cwd[1024];
+            if (getcwd(cwd, sizeof(cwd)) == NULL)
+                return 1;
+
+            if(go_to_mmlrepo())
+                return 1;
+            
+            FILE* file = fopen("hooks", "a");
+            if(file == NULL)
+            {
+                FILE* file = fopen("hooks", "w");
+            }
+            fprintf(file, "%s\n", argv[4]);
+            fclose(file);
+            chdir(cwd);
+            return 0;
+        }
+        if(strcmp(argv[2], "remove") == 0 && strcmp(argv[3], "hook") == 0)
+        {
+            char tags[100][1000];
+            char cwd[1024];
+            if (getcwd(cwd, sizeof(cwd)) == NULL)
+                return 1;
+
+            if(go_to_mmlrepo())
+                return 1;
+
+            FILE* file = fopen("hooks", "r");
+            if(file == NULL)
+            {
+                perror("You haven't added any hooks yet!\n");
+                chdir(cwd);
+                return 1;
+            }
+            FILE* file2 = fopen("tmp", "w");
+            char line[2000];
+            int flag = 1;
+            while(fgets(line, sizeof(line), file) != NULL)
+            {
+                int len = strlen(line);
+                if(line[len - 1] == '\n' && len > 0)
+                {
+                    line[len - 1] = '\0';
+                }
+                if(strcmp(argv[4], line) != 0)
+                {
+                    fprintf(file2, "%s\n", line);
+                }
+                else
+                {
+                    flag = 0;
+                }
+            }
+            fclose(file2);
+            fclose(file);
+            if(flag)
+            {
+                remove("tmp");
+                perror("You have not added this hook yet!\n");
+                chdir(cwd);
+                return 1;
+            }
+            remove("hooks");
+            rename("tmp", "hooks");
+            chdir(cwd);
+            return 0;
+        }
+    }
+
+    if(strcmp(argv[1], "grep") == 0 && strcmp(argv[2], "-f") == 0 && strcmp(argv[4], "-p") == 0)
+    {
+        int commitExistance = 0;
+        int lineShower = 0;
+        char* path = realpath(argv[3], NULL);
+        char commit[2000] = "current";
+        if(argc > 6)
+        {
+            if(strcmp(argv[6], "-c") == 0)
+            {
+                strcpy(commit, argv[7]);
+                commitExistance = 1;
+            }
+            if(strcmp(argv[6], "-n") == 0)
+            {
+                lineShower = 1;
+            }
+        }
+        if(argc > 8)
+        {
+            if(strcmp(argv[8], "-n") == 0)
+            {
+                lineShower = 1;
+            }
+        }
+        return (grep(argv[5], path, commit, lineShower));
+
     }
 
 }
