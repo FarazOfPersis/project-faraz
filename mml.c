@@ -431,7 +431,7 @@ int init(int argc, char * const argv[], char username[], char email[])
             return 1;
         }
 
-        if (strcmp(tmp_cwd, "/") != 0)// shal be changed
+        if (strcmp(tmp_cwd, "/") != 0)
         {
             if (chdir("..") != 0) 
             {
@@ -440,7 +440,7 @@ int init(int argc, char * const argv[], char username[], char email[])
             }
         }
 
-    } while (strcmp(tmp_cwd, "/") != 0);// shall be changed
+    } while (strcmp(tmp_cwd, "/") != 0);
 
     if (chdir(cwd) != 0)
     {
@@ -2595,10 +2595,11 @@ int mmllogDate(char date[], int n)
     fclose(file);
 
     struct tm tmStruct;
-    int year, month;
-    sscanf(date, "%d %d %d %d:%d:%d", &year, &month, &tmStruct.tm_mday, &tmStruct.tm_hour, &tmStruct.tm_min, &tmStruct.tm_sec);
+    int year, month, hour;
+    sscanf(date, "%d %d %d %d:%d:%d", &year, &month, &tmStruct.tm_mday, &hour, &tmStruct.tm_min, &tmStruct.tm_sec);
     tmStruct.tm_year = year - 1900;
     tmStruct.tm_mon = month - 1;
+    tmStruct.tm_hour = hour + 1;
 
     time_t timeval = mktime(&tmStruct);
 
@@ -3801,8 +3802,7 @@ int main(int argc, char * argv[])
         if(strncmp(argv[3], "alias", 5) == 0)
         {
             char aliasName[1000];
-            sscanf(argv[4], "alias.%s", aliasName);
-            
+            sscanf(argv[3], "alias.%s", aliasName);
             if(strncmp(argv[4], "mml", 3) != 0)
             {
                 perror("Invalid command\n");
@@ -3904,6 +3904,11 @@ int main(int argc, char * argv[])
 
     if(strcmp(argv[1], "commit") == 0)
     {
+        if(argc < 4)
+        {
+            perror("You should add a message!\n");
+            return 1;
+        }
         if(strcmp(argv[2], "-m") == 0)
         {
             if(strlen(argv[3]) > 72)
@@ -3933,6 +3938,8 @@ int main(int argc, char * argv[])
                     return 0;
                 }
             }
+            perror("There is no shortcut with the given name!\n");
+            return 1;
 
         }
     }
