@@ -818,7 +818,23 @@ int ownersUsernameFinder(char username[])
     {
         if(strcmp(lastglobal, globall) == 0)
         {
-            strcpy(username, finall);
+            struct stat glob;
+            struct stat loc;
+            if(stat("finalUsername", &loc) == -1)
+            {
+                perror("an error accured!\n");
+                return 1;
+            }
+            if(stat("./.mmlConfigUserEmail/globalUsername.txt", &glob) == -1)
+            {
+                perror("an error accured!\n");
+                return 1;
+            }
+            if(glob.st_mtime < loc.st_mtime)
+                strcpy(username, finall);
+
+            else        
+                strcpy(username, globall);
         }
 
         else
